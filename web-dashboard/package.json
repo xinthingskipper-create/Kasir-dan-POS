@@ -1,0 +1,20 @@
+{
+  "name": "pos-web-dashboard",
+  "version": "1.0.0",
+  "description": "Portal Web Laporan Owner Real-Time untuk Kasir POS",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "deploy": "firebase deploy --only hosting,database"
+  },
+  "keywords": [
+    "pos",
+    "kasir",
+    "firebase",
+    "realtimedatabase",
+    "hosting",
+    "owner-portal"
+  ],
+  "author": "Kasir POS Team",
+  "license": "ISC"
+}

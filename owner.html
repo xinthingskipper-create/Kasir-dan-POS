@@ -1,0 +1,1204 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Portal Realtime Database Laporan Tutup Kasir - Kasir POS</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
+  <style>
+    body { font-family: 'Plus Jakarta Sans', sans-serif; }
+    .font-mono { font-family: 'JetBrains Mono', monospace; }
+    @keyframes pulse-dot {
+      0%, 100% { transform: scale(1); opacity: 1; }
+      50% { transform: scale(1.4); opacity: 0.6; }
+    }
+    .pulse-live { animation: pulse-dot 1.8s infinite ease-in-out; }
+    @media print {
+      .no-print { display: none !important; }
+      body { background: white !important; color: black !important; padding: 0 !important; }
+      .print-card { box-shadow: none !important; border: 1px solid #ccc !important; }
+    }
+  </style>
+</head>
+<body class="bg-slate-950 text-slate-100 min-h-screen flex flex-col antialiased selection:bg-orange-500 selection:text-white">
+
+  <!-- Top Navigation & Live Realtime Indicator -->
+  <header class="bg-slate-900/90 backdrop-blur-md border-b border-slate-800 sticky top-0 z-40">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 py-3.5 flex flex-wrap items-center justify-between gap-3">
+      
+      <!-- Brand & Title -->
+      <div class="flex items-center gap-3">
+        <div class="w-10 h-10 rounded-xl bg-gradient-to-tr from-orange-600 to-amber-500 flex items-center justify-center text-white shadow-lg shadow-orange-500/20">
+          <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/>
+          </svg>
+        </div>
+        <div>
+          <div class="flex items-center gap-2">
+            <h1 class="text-base sm:text-lg font-extrabold text-white tracking-tight">Portal Laporan Realtime Database</h1>
+            <span class="text-[10px] font-bold uppercase tracking-wider bg-orange-500/10 text-orange-400 border border-orange-500/30 px-2 py-0.5 rounded-full">RTDB Live</span>
+          </div>
+          <p class="text-xs text-slate-400">Pemantauan Laporan Tutup Kasir & Omset Online dari Mana Saja</p>
+        </div>
+      </div>
+
+      <!-- Database Status & Action Bar -->
+      <div class="flex items-center gap-2.5 flex-wrap">
+        <!-- Live RTDB Pill -->
+        <div class="flex items-center gap-2 bg-slate-800/80 border border-slate-700 px-3 py-1.5 rounded-xl text-xs">
+          <span class="w-2.5 h-2.5 rounded-full bg-emerald-500 pulse-live"></span>
+          <span class="text-slate-300 font-medium">Database:</span>
+          <span id="lbl-rtdb-host" class="font-mono text-emerald-400 font-bold">foodrock-report-default-rtdb</span>
+        </div>
+
+        <!-- Direct Link to Tutup Toko Dashboard -->
+        <a href="tutup-toko.html" class="px-3 py-1.5 bg-gradient-to-r from-orange-600 to-amber-600 hover:from-orange-500 hover:to-amber-500 text-white rounded-xl text-xs font-bold transition flex items-center gap-1.5 shadow-md shadow-orange-600/30">
+          <span>📋</span>
+          <span>Laporan Tutup Toko</span>
+        </a>
+
+        <!-- Setting Modal Button -->
+        <button id="btn-open-config" class="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white rounded-xl text-xs font-semibold border border-slate-700 transition flex items-center gap-1.5 cursor-pointer">
+          <svg class="w-4 h-4 text-orange-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/>
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/>
+          </svg>
+          <span>Ubah Database</span>
+        </button>
+
+        <!-- Refresh Button -->
+        <button id="btn-manual-refresh" class="p-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white rounded-xl border border-slate-700 transition cursor-pointer" title="Perbarui Data Sekarang">
+          <svg class="w-4 h-4 text-sky-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
+          </svg>
+        </button>
+      </div>
+
+    </div>
+  </header>
+
+  <!-- Main Container -->
+  <main class="max-w-7xl mx-auto px-4 sm:px-6 py-6 w-full space-y-6 flex-1">
+
+    <!-- 1. Real-time Shift Closing Highlight Banner -->
+    <div id="banner-latest-shift" class="bg-gradient-to-r from-orange-950/70 via-slate-900 to-slate-900 border border-orange-500/30 rounded-2xl p-5 shadow-xl relative overflow-hidden">
+      <div class="absolute -right-6 -bottom-6 w-32 h-32 bg-orange-500/10 rounded-full blur-2xl pointer-events-none"></div>
+      
+      <div class="flex flex-col md:flex-row md:items-center justify-between gap-4">
+        <div class="space-y-1.5">
+          <div class="flex items-center gap-2">
+            <span class="inline-flex items-center gap-1.5 bg-orange-500/20 text-orange-400 border border-orange-500/40 text-[11px] font-bold px-2.5 py-0.5 rounded-full uppercase tracking-wider">
+              <span class="w-2 h-2 rounded-full bg-orange-500 animate-ping"></span>
+              Tutup Kasir Terakhir
+            </span>
+            <span id="latest-shift-time" class="text-xs text-slate-400 font-mono">-</span>
+          </div>
+
+          <div class="flex flex-wrap items-baseline gap-3 pt-1">
+            <h2 id="latest-shift-id" class="text-xl sm:text-2xl font-black text-white tracking-tight">Menunggu data tutup kasir...</h2>
+            <span id="latest-shift-cashier" class="text-xs font-semibold text-slate-300 bg-slate-800 px-2.5 py-1 rounded-lg">Staf Kasir</span>
+          </div>
+
+          <p id="latest-shift-notes" class="text-xs text-slate-400 italic">Laporan shift kasir otomatis muncul begitu tombol 'Konfirmasi Tutup' ditekan di aplikasi POS.</p>
+        </div>
+
+        <!-- Latest Shift KPI Badges -->
+        <div class="flex flex-wrap items-center gap-3">
+          <!-- Omset -->
+          <div class="bg-slate-950/80 border border-slate-800 p-3 rounded-xl min-w-[130px]">
+            <div class="text-[10px] font-bold text-slate-400 uppercase">Omset Shift</div>
+            <div id="latest-shift-revenue" class="text-lg font-black text-emerald-400 font-mono mt-0.5">Rp 0</div>
+          </div>
+          <!-- Fisik Kas Laci -->
+          <div class="bg-slate-950/80 border border-slate-800 p-3 rounded-xl min-w-[130px]">
+            <div class="text-[10px] font-bold text-slate-400 uppercase">Kas Fisik Laci</div>
+            <div id="latest-shift-cash" class="text-lg font-black text-amber-400 font-mono mt-0.5">Rp 0</div>
+          </div>
+          <!-- Status Selisih -->
+          <div class="bg-slate-950/80 border border-slate-800 p-3 rounded-xl min-w-[130px]">
+            <div class="text-[10px] font-bold text-slate-400 uppercase">Status Kas</div>
+            <div id="latest-shift-diff-badge" class="mt-1">
+              <span class="text-xs font-bold text-slate-500">Menunggu</span>
+            </div>
+          </div>
+          <!-- Action Button -->
+          <button id="btn-view-latest-receipt" class="px-4 py-3 bg-orange-600 hover:bg-orange-500 text-white rounded-xl text-xs font-bold transition flex items-center gap-2 shadow-lg shadow-orange-600/30 cursor-pointer">
+            <span>📋 Struk Detail</span>
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 2. Daily KPI Metric Cards -->
+    <div class="grid grid-cols-2 md:grid-cols-5 gap-3.5">
+      <!-- Total Omset -->
+      <div class="bg-slate-900 border border-slate-800 p-4 rounded-2xl">
+        <span class="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Total Omset</span>
+        <div id="stat-total-revenue" class="text-xl font-black text-emerald-400 mt-1 font-mono">Rp 0</div>
+        <span class="text-[10px] text-slate-500">Semua transaksi hari ini</span>
+      </div>
+
+      <!-- Kas Tunai -->
+      <div class="bg-slate-900 border border-slate-800 p-4 rounded-2xl">
+        <span class="text-[11px] font-bold text-amber-400/90 uppercase tracking-wider">Total Kas Laci</span>
+        <div id="stat-total-cash" class="text-xl font-black text-amber-400 mt-1 font-mono">Rp 0</div>
+        <span class="text-[10px] text-slate-500">Uang tunai kasir</span>
+      </div>
+
+      <!-- Non-Tunai / QRIS -->
+      <div class="bg-slate-900 border border-slate-800 p-4 rounded-2xl">
+        <span class="text-[11px] font-bold text-purple-400/90 uppercase tracking-wider">QRIS & Transfer</span>
+        <div id="stat-total-noncash" class="text-xl font-black text-purple-400 mt-1 font-mono">Rp 0</div>
+        <span class="text-[10px] text-slate-500">Pembayaran digital</span>
+      </div>
+
+      <!-- Total Transaksi -->
+      <div class="bg-slate-900 border border-slate-800 p-4 rounded-2xl">
+        <span class="text-[11px] font-bold text-sky-400/90 uppercase tracking-wider">Total Transaksi</span>
+        <div id="stat-total-trx" class="text-xl font-black text-sky-400 mt-1 font-mono">0 Struk</div>
+        <span class="text-[10px] text-slate-500">Pesanan terlayani</span>
+      </div>
+
+      <!-- Shift Ditutup -->
+      <div class="bg-slate-900 border border-slate-800 p-4 rounded-2xl col-span-2 md:col-span-1">
+        <span class="text-[11px] font-bold text-orange-400/90 uppercase tracking-wider">Shift Selesai</span>
+        <div id="stat-total-shifts" class="text-xl font-black text-orange-400 mt-1 font-mono">0 Shift</div>
+        <span class="text-[10px] text-slate-500">Laporan tutup kasir</span>
+      </div>
+    </div>
+
+    <!-- 3. Tab Filter Buttons -->
+    <div class="flex items-center justify-between border-b border-slate-800 pb-2">
+      <div class="flex items-center gap-2">
+        <button id="btn-tab-shifts" class="px-3.5 py-1.5 text-xs font-bold rounded-xl bg-orange-600 text-white shadow-xs cursor-pointer">
+          📋 Laporan Tutup Kasir (Shift)
+        </button>
+        <button id="btn-tab-trx" class="px-3.5 py-1.5 text-xs font-semibold rounded-xl bg-slate-900 hover:bg-slate-800 text-slate-400 hover:text-white border border-slate-800 transition cursor-pointer">
+          🧾 Transaksi Penjualan Live
+        </button>
+      </div>
+
+      <!-- Auto refresh ticker -->
+      <div class="text-[11px] text-slate-400 flex items-center gap-1.5">
+        <span class="w-2 h-2 rounded-full bg-emerald-500 pulse-live"></span>
+        <span id="live-time-ticker">Realtime Database Active</span>
+      </div>
+    </div>
+
+    <!-- 4. Section: Shift Reports Table (Primary Focus) -->
+    <div id="view-shifts-section" class="bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden shadow-lg">
+      <div class="p-4 border-b border-slate-800 flex flex-wrap items-center justify-between gap-3 bg-slate-900/60">
+        <div>
+          <h3 class="text-sm font-bold text-white flex items-center gap-2">
+            <span>📋</span> Riwayat Laporan Tutup Kasir Realtime Database
+          </h3>
+          <p class="text-xs text-slate-400">Setiap pergantian kasir atau tutup toko otomatis tercatat permanen di cloud</p>
+        </div>
+        <div class="flex items-center gap-2">
+          <span id="shifts-badge" class="px-2.5 py-1 rounded-full bg-slate-800 text-slate-300 text-xs font-mono font-bold">0 Laporan</span>
+        </div>
+      </div>
+
+      <div class="overflow-x-auto">
+        <table class="w-full text-left text-xs text-slate-300 border-collapse">
+          <thead>
+            <tr class="bg-slate-950/80 border-b border-slate-800 text-slate-400 font-bold uppercase text-[10px] tracking-wider">
+              <th class="py-3 px-4">Shift & Waktu</th>
+              <th class="py-3 px-4">Kasir</th>
+              <th class="py-3 px-4 text-center">Struk</th>
+              <th class="py-3 px-4 text-right">Total Omset</th>
+              <th class="py-3 px-4 text-right">Kas Sistem</th>
+              <th class="py-3 px-4 text-right">Fisik Laci</th>
+              <th class="py-3 px-4 text-center">Selisih Kas</th>
+              <th class="py-3 px-4 text-right">Non-Tunai</th>
+              <th class="py-3 px-4">Catatan</th>
+              <th class="py-3 px-4 text-center no-print">Audit & Struk</th>
+            </tr>
+          </thead>
+          <tbody id="rtdb-shifts-body" class="divide-y divide-slate-800/60">
+            <tr>
+              <td colspan="10" class="py-12 text-center text-slate-500">
+                <div class="flex flex-col items-center justify-center">
+                  <span class="text-3xl mb-2">📋</span>
+                  <p class="font-medium text-slate-300">Menghubungkan ke Firebase Realtime Database...</p>
+                  <p class="text-[11px] text-slate-500 mt-1">Data shift kasir akan tampil otomatis tanpa refresh.</p>
+                </div>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- 5. Section: Live Transactions Table (Stream /transactions) -->
+    <div id="view-trx-section" class="bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden shadow-lg hidden">
+      <div class="p-4 border-b border-slate-800 flex flex-wrap items-center justify-between gap-3 bg-slate-900/60">
+        <div>
+          <h3 class="text-sm font-bold text-white flex items-center gap-2">
+            <span>🧾</span> Stream Transaksi Penjualan Kasir (Node: /transactions)
+            <span class="w-2 h-2 rounded-full bg-emerald-500 pulse-live"></span>
+          </h3>
+          <p class="text-xs text-slate-400">Setiap struk pesanan otomatis masuk detik itu juga tanpa perlu refresh</p>
+        </div>
+        <div class="flex items-center gap-2">
+          <span id="trx-badge" class="px-2.5 py-1 rounded-full bg-slate-800 text-slate-300 text-xs font-mono font-bold">0 Transaksi</span>
+        </div>
+      </div>
+
+      <!-- Live Search & Filter Bar -->
+      <div class="p-3 bg-slate-950/70 border-b border-slate-800 flex flex-wrap items-center justify-between gap-3">
+        <div class="relative flex-1 min-w-[220px] max-w-md">
+          <input type="text" id="input-search-trx" placeholder="Cari invoice, pelanggan, menu, kasir..." class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3.5 py-2 text-xs text-white placeholder-slate-500 focus:outline-hidden focus:border-orange-500">
+          <span class="absolute right-3 top-2.5 text-xs text-slate-500">🔍</span>
+        </div>
+
+        <div class="flex items-center gap-1.5 flex-wrap">
+          <span class="text-[11px] text-slate-400 mr-1">Metode:</span>
+          <button class="filter-pay-btn px-2.5 py-1 text-xs font-semibold rounded-lg bg-orange-600 text-white cursor-pointer" data-filter="ALL">Semua</button>
+          <button class="filter-pay-btn px-2.5 py-1 text-xs font-semibold rounded-lg bg-slate-800 text-slate-400 hover:text-white cursor-pointer" data-filter="TUNAI">💵 Tunai</button>
+          <button class="filter-pay-btn px-2.5 py-1 text-xs font-semibold rounded-lg bg-slate-800 text-slate-400 hover:text-white cursor-pointer" data-filter="QRIS">📱 QRIS</button>
+          <button class="filter-pay-btn px-2.5 py-1 text-xs font-semibold rounded-lg bg-slate-800 text-slate-400 hover:text-white cursor-pointer" data-filter="TRANSFER">🏦 Transfer</button>
+        </div>
+      </div>
+
+      <div class="overflow-x-auto">
+        <table class="w-full text-left text-xs text-slate-300 border-collapse">
+          <thead>
+            <tr class="bg-slate-950/80 border-b border-slate-800 text-slate-400 font-bold uppercase text-[10px] tracking-wider">
+              <th class="py-3 px-4">No. Invoice & Jam</th>
+              <th class="py-3 px-4">Pelanggan & Meja</th>
+              <th class="py-3 px-4">Kasir</th>
+              <th class="py-3 px-4">Menu & Pesanan</th>
+              <th class="py-3 px-4">Metode</th>
+              <th class="py-3 px-4 text-right">Total Belanja</th>
+              <th class="py-3 px-4 text-center no-print">Rincian Nota</th>
+            </tr>
+          </thead>
+          <tbody id="rtdb-trx-body" class="divide-y divide-slate-800/60">
+            <tr>
+              <td colspan="7" class="py-12 text-center text-slate-500">
+                Belum ada transaksi tersinkron.
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+  </main>
+
+  <!-- Modal: Rincian Struk Tutup Kasir Digital -->
+  <div id="modal-shift" class="fixed inset-0 bg-black/70 backdrop-blur-xs z-50 hidden flex items-center justify-center p-4">
+    <div class="bg-slate-900 border border-slate-800 rounded-2xl max-w-sm w-full p-6 shadow-2xl space-y-4 print-card">
+      <div class="flex items-center justify-between border-b border-slate-800 pb-2 no-print">
+        <span class="text-xs font-bold text-orange-400 flex items-center gap-1.5">
+          <span>🔒</span> Struk Audit Tutup Kasir Realtime
+        </span>
+        <button id="btn-close-modal" class="text-slate-400 hover:text-white text-xl font-bold cursor-pointer">&times;</button>
+      </div>
+
+      <!-- Receipt Content -->
+      <div class="text-center space-y-1">
+        <h4 id="modal-store-title" class="font-black text-white text-base uppercase">Foodrock POS</h4>
+        <p id="modal-shift-name" class="font-mono text-xs font-bold text-orange-400">SHIFT-01</p>
+        <p id="modal-shift-date" class="text-[11px] text-slate-400">-</p>
+      </div>
+
+      <div class="border-y border-dashed border-slate-800 py-3 space-y-1.5 text-xs">
+        <div class="flex justify-between">
+          <span class="text-slate-400">Staf Kasir:</span>
+          <span id="modal-cashier-name" class="font-bold text-white">-</span>
+        </div>
+        <div class="flex justify-between">
+          <span class="text-slate-400">Total Transaksi:</span>
+          <span id="modal-trx-count" class="font-mono font-semibold text-white">0 Struk</span>
+        </div>
+      </div>
+
+      <!-- Financials -->
+      <div class="space-y-1.5 text-xs">
+        <div class="flex justify-between font-bold text-sm">
+          <span class="text-white">Total Omset:</span>
+          <span id="modal-total-rev" class="text-emerald-400 font-mono font-black">Rp 0</span>
+        </div>
+        <div class="flex justify-between text-slate-400">
+          <span>• Tunai Kasir:</span>
+          <span id="modal-cash-rev" class="font-mono text-slate-200">Rp 0</span>
+        </div>
+        <div class="flex justify-between text-slate-400">
+          <span>• QRIS & Non-Tunai:</span>
+          <span id="modal-noncash-rev" class="font-mono text-slate-200">Rp 0</span>
+        </div>
+      </div>
+
+      <!-- Cash Drawer Audit -->
+      <div class="bg-slate-950 p-3 rounded-xl border border-slate-800 space-y-1.5 text-xs">
+        <div class="text-[10px] font-bold uppercase text-slate-500 tracking-wider">Audit Kas Laci:</div>
+        <div class="flex justify-between">
+          <span class="text-slate-400">Kas Sistem (Expected):</span>
+          <span id="modal-expected-cash" class="font-mono text-slate-200">Rp 0</span>
+        </div>
+        <div class="flex justify-between">
+          <span class="text-slate-400">Uang Fisik Dihitung:</span>
+          <span id="modal-actual-cash" class="font-mono font-bold text-amber-400">Rp 0</span>
+        </div>
+        <div class="flex justify-between pt-1 border-t border-slate-800/80 font-bold">
+          <span class="text-slate-300">Status Selisih:</span>
+          <span id="modal-diff-status">-</span>
+        </div>
+      </div>
+
+      <div class="text-xs">
+        <span class="text-slate-400">Catatan Kasir:</span>
+        <p id="modal-shift-notes" class="text-slate-300 italic bg-slate-950 p-2.5 rounded-lg mt-1 border border-slate-800">-</p>
+      </div>
+
+      <!-- Actions -->
+      <div class="pt-2 border-t border-slate-800 flex flex-col gap-2 no-print">
+        <div class="flex gap-2">
+          <button id="btn-wa-share" class="flex-1 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold transition flex items-center justify-center gap-1.5 cursor-pointer">
+            <span>💬 Kirim WA</span>
+          </button>
+          <button onclick="window.print()" class="flex-1 py-2 bg-slate-800 hover:bg-slate-700 text-white rounded-xl text-xs font-bold transition flex items-center justify-center gap-1.5 cursor-pointer">
+            <span>🖨️ Cetak</span>
+          </button>
+        </div>
+        <button id="btn-modal-done" class="w-full py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl text-xs font-semibold transition cursor-pointer">
+          Tutup
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal: Rincian Struk Transaksi Digital (Itemized Receipt) -->
+  <div id="modal-trx-detail" class="fixed inset-0 bg-black/70 backdrop-blur-xs z-50 hidden flex items-center justify-center p-4">
+    <div class="bg-slate-900 border border-slate-800 rounded-2xl max-w-sm w-full p-6 shadow-2xl space-y-4 print-card max-h-[90vh] overflow-y-auto">
+      <div class="flex items-center justify-between border-b border-slate-800 pb-2 no-print">
+        <span class="text-xs font-bold text-orange-400 flex items-center gap-1.5">
+          <span>🧾</span> Struk Transaksi Realtime Online
+        </span>
+        <button id="btn-close-trx-modal" class="text-slate-400 hover:text-white text-xl font-bold cursor-pointer">&times;</button>
+      </div>
+
+      <!-- Receipt Header -->
+      <div class="text-center space-y-1">
+        <h4 id="trx-store-name" class="font-black text-white text-base uppercase">FOODROCK POS</h4>
+        <p id="trx-invoice-no" class="font-mono text-xs font-bold text-orange-400">INV-0000</p>
+        <p id="trx-date-time" class="text-[11px] text-slate-400">-</p>
+      </div>
+
+      <!-- Meta Info -->
+      <div class="border-y border-dashed border-slate-800 py-2.5 space-y-1 text-xs">
+        <div class="flex justify-between">
+          <span class="text-slate-400">Kasir:</span>
+          <span id="trx-cashier" class="font-bold text-white">-</span>
+        </div>
+        <div class="flex justify-between">
+          <span class="text-slate-400">Pelanggan:</span>
+          <span id="trx-customer" class="font-semibold text-white">-</span>
+        </div>
+        <div class="flex justify-between">
+          <span class="text-slate-400">Tipe / Meja:</span>
+          <span id="trx-type-table" class="font-semibold text-white">-</span>
+        </div>
+      </div>
+
+      <!-- Items List -->
+      <div class="space-y-2">
+        <div class="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Rincian Menu:</div>
+        <div id="trx-items-container" class="space-y-1.5 text-xs max-h-48 overflow-y-auto pr-1">
+          <!-- Item rows inserted via JS -->
+        </div>
+      </div>
+
+      <!-- Totals & Payment Summary -->
+      <div class="border-t border-dashed border-slate-800 pt-2.5 space-y-1.5 text-xs">
+        <div class="flex justify-between text-slate-400">
+          <span>Subtotal:</span>
+          <span id="trx-subtotal" class="font-mono text-slate-200">Rp 0</span>
+        </div>
+        <div id="trx-discount-row" class="flex justify-between text-rose-400 hidden">
+          <span>Diskon:</span>
+          <span id="trx-discount" class="font-mono">-Rp 0</span>
+        </div>
+        <div id="trx-tax-row" class="flex justify-between text-slate-400 hidden">
+          <span>Pajak:</span>
+          <span id="trx-tax" class="font-mono">Rp 0</span>
+        </div>
+        <div class="flex justify-between text-sm font-black border-t border-slate-800 pt-1 text-white">
+          <span>Total Akhir:</span>
+          <span id="trx-grandtotal" class="text-emerald-400 font-mono">Rp 0</span>
+        </div>
+        <div class="flex justify-between text-slate-400">
+          <span>Metode Bayar:</span>
+          <span id="trx-pay-method" class="font-bold text-orange-400">TUNAI</span>
+        </div>
+        <div id="trx-cash-details" class="space-y-1">
+          <div class="flex justify-between text-slate-400">
+            <span>Uang Diterima:</span>
+            <span id="trx-amount-paid" class="font-mono text-slate-200">Rp 0</span>
+          </div>
+          <div class="flex justify-between text-slate-400">
+            <span>Kembalian:</span>
+            <span id="trx-change-amount" class="font-mono text-slate-200">Rp 0</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Actions -->
+      <div class="pt-2 border-t border-slate-800 flex flex-col gap-2 no-print">
+        <div class="flex gap-2">
+          <button id="btn-trx-wa-share" class="flex-1 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold transition flex items-center justify-center gap-1.5 cursor-pointer">
+            <span>💬 Kirim WA</span>
+          </button>
+          <button onclick="window.print()" class="flex-1 py-2 bg-slate-800 hover:bg-slate-700 text-white rounded-xl text-xs font-bold transition flex items-center justify-center gap-1.5 cursor-pointer">
+            <span>🖨️ Cetak</span>
+          </button>
+        </div>
+        <button id="btn-trx-modal-done" class="w-full py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl text-xs font-semibold transition cursor-pointer">
+          Tutup
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal: Ubah Konfigurasi Realtime Database -->
+  <div id="modal-config" class="fixed inset-0 bg-black/70 backdrop-blur-xs z-50 hidden flex items-center justify-center p-4">
+    <div class="bg-slate-900 border border-slate-800 rounded-2xl max-w-md w-full p-6 shadow-2xl space-y-4">
+      <div class="flex items-center justify-between border-b border-slate-800 pb-2">
+        <h3 class="text-sm font-bold text-white flex items-center gap-2">
+          <span>⚙️</span> Konfigurasi Firebase Realtime Database
+        </h3>
+        <button id="btn-close-config" class="text-slate-400 hover:text-white text-xl font-bold cursor-pointer">&times;</button>
+      </div>
+
+      <p class="text-xs text-slate-400">
+        Masukkan URL database atau nama instance Firebase Realtime Database Anda (sesuai yang ada di Firebase Console):
+      </p>
+
+      <div class="space-y-3">
+        <div>
+          <label class="block text-xs font-semibold text-slate-300 mb-1">Database Instance / Host:</label>
+          <input type="text" id="cfg-rtdb-host" class="w-full bg-slate-950 border border-slate-700 rounded-xl px-3.5 py-2 text-xs font-mono text-white focus:outline-hidden focus:border-orange-500" placeholder="foodrock-report-default-rtdb">
+          <p class="text-[11px] text-slate-500 mt-1">Default: <code class="text-orange-400">foodrock-report-default-rtdb</code></p>
+        </div>
+
+        <div class="pt-2 flex gap-2">
+          <button id="btn-save-config" class="flex-1 py-2.5 bg-orange-600 hover:bg-orange-500 text-white rounded-xl text-xs font-bold transition cursor-pointer">
+            Simpan & Sambungkan
+          </button>
+          <button id="btn-reset-config" class="px-3.5 py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl text-xs font-semibold transition cursor-pointer">
+            Reset Default
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Footer -->
+  <footer class="bg-slate-950 border-t border-slate-900 py-4 text-center text-xs text-slate-600">
+    <p>Portal Laporan Tutup Kasir Online &bull; Terhubung Realtime Database &bull; Foodrock POS</p>
+  </footer>
+
+  <!-- Firebase Realtime Database Logic -->
+  <script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+    import { getDatabase, ref, onValue } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-database.js";
+
+    // URL Query parameters & LocalStorage configuration
+    const urlParams = new URLSearchParams(window.location.search);
+    const paramDb = urlParams.get('db') || urlParams.get('databaseId') || urlParams.get('project');
+    const DEFAULT_RTDB = "foodrock-report-default-rtdb";
+
+    let activeRtdb = paramDb || localStorage.getItem('pos_rtdb_target') || DEFAULT_RTDB;
+    if (paramDb) localStorage.setItem('pos_rtdb_target', paramDb);
+
+    const lblHost = document.getElementById('lbl-rtdb-host');
+    if (lblHost) lblHost.textContent = activeRtdb;
+
+    // Formatting Helpers
+    const formatRupiah = (num) => {
+      return new Intl.NumberFormat('id-ID', {
+        style: 'currency',
+        currency: 'IDR',
+        maximumFractionDigits: 0
+      }).format(Number(num) || 0);
+    };
+
+    const formatDate = (isoString) => {
+      if (!isoString) return '-';
+      try {
+        const d = new Date(isoString);
+        return d.toLocaleDateString('id-ID', {
+          day: 'numeric',
+          month: 'short',
+          year: 'numeric',
+          hour: '2-digit',
+          minute: '2-digit'
+        });
+      } catch(e) {
+        return isoString;
+      }
+    };
+
+    // Global in-memory state
+    let shiftReports = [];
+    let transactions = [];
+    let currentModalShift = null;
+
+    // Firebase App & Database Setup
+    let database;
+    try {
+      const cleanDbHost = activeRtdb
+        .replace('https://', '')
+        .replace('.firebaseio.com', '')
+        .replace('.asia-southeast1.firebasedatabase.app', '');
+      const dbUrl = `https://${cleanDbHost}.asia-southeast1.firebasedatabase.app`;
+      const app = initializeApp({
+        databaseURL: dbUrl
+      }, 'rtdbApp_' + Date.now());
+      database = getDatabase(app);
+      console.log("Firebase Realtime Database initialized for:", dbUrl);
+    } catch(err) {
+      console.warn("RTDB SDK initialization notice:", err);
+    }
+
+    function showPermissionBanner(err) {
+      if (document.getElementById('rtdb-perm-warning')) return;
+      const banner = document.createElement('div');
+      banner.id = 'rtdb-perm-warning';
+      banner.className = 'bg-amber-500/15 border border-amber-500/40 text-amber-300 rounded-2xl p-4 text-xs flex items-start gap-3 shadow-xl mb-4';
+      banner.innerHTML = `
+        <span class="text-2xl">⚠️</span>
+        <div class="space-y-1">
+          <p class="font-bold text-sm text-amber-200">Database Mengembalikan "${err}"</p>
+          <p class="text-slate-300">Data belum dapat masuk karena <strong>Rules Realtime Database di Firebase Console belum di-PUBLISH</strong>.</p>
+          <p class="text-slate-400">Silakan buka <strong>Firebase Console &gt; Realtime Database &gt; Rules</strong>, pastikan rules <code>".read": true, ".write": true</code> (atau dengan tanggal), lalu <strong>wajib klik tombol biru "Publish" (Publikasikan)</strong> di bagian atas editor.</p>
+        </div>
+      `;
+      const container = document.querySelector('main');
+      if (container) container.prepend(banner);
+    }
+
+    // 1. Listen to Shift Closings (Tutup Kasir) via RTDB SDK & HTTP REST Fallback
+    function setupShiftListener() {
+      if (database) {
+        try {
+          const shiftRef = ref(database, 'shift_reports');
+          onValue(shiftRef, (snapshot) => {
+            const data = snapshot.val();
+            if (data && typeof data === 'object') {
+              processShiftData(data);
+            }
+          }, (error) => {
+            console.warn("RTDB SDK shift listener warning:", error);
+            if (error && error.message && error.message.includes('Permission denied')) {
+              showPermissionBanner("Permission denied");
+            }
+            fetchShiftRest();
+          });
+        } catch(e) {
+          fetchShiftRest();
+        }
+      } else {
+        fetchShiftRest();
+      }
+    }
+
+    function fetchShiftRest() {
+      const cleanHost = activeRtdb
+        .replace('https://', '')
+        .replace('.firebaseio.com', '')
+        .replace('.asia-southeast1.firebasedatabase.app', '');
+      const urls = [
+        `https://foodrock-report-default-rtdb.asia-southeast1.firebasedatabase.app/shift_reports.json`,
+        `https://${cleanHost}.asia-southeast1.firebasedatabase.app/shift_reports.json`,
+        `https://${cleanHost}.firebaseio.com/shift_reports.json`,
+        `https://${cleanHost}-default-rtdb.asia-southeast1.firebasedatabase.app/shift_reports.json`
+      ];
+
+      urls.forEach(url => {
+        fetch(url)
+          .then(res => res.json())
+          .then(data => {
+            if (data && typeof data === 'object') {
+              if (data.error) {
+                showPermissionBanner(data.error);
+              } else {
+                processShiftData(data);
+              }
+            }
+          })
+          .catch(() => {});
+      });
+    }
+
+    function processShiftData(data) {
+      if (!data || typeof data !== 'object') return;
+      const list = Object.keys(data).map(key => ({
+        id: key,
+        ...data[key]
+      }));
+
+      const existingIds = new Set(shiftReports.map(s => String(s.id || s.shiftNumber)));
+      let changed = false;
+      list.forEach(item => {
+        const id = String(item.id || item.shiftNumber || '');
+        if (!id) return;
+        if (!existingIds.has(id)) {
+          shiftReports.push(item);
+          existingIds.add(id);
+          changed = true;
+        } else {
+          const idx = shiftReports.findIndex(s => String(s.id || s.shiftNumber) === id);
+          if (idx !== -1) {
+            shiftReports[idx] = { ...shiftReports[idx], ...item };
+            changed = true;
+          }
+        }
+      });
+
+      if (changed || shiftReports.length === 0) {
+        shiftReports.sort((a, b) => {
+          const timeA = new Date(a.timestamp || a.endTime || a.date || 0).getTime();
+          const timeB = new Date(b.timestamp || b.endTime || b.date || 0).getTime();
+          return timeB - timeA;
+        });
+        renderShiftView();
+      }
+    }
+
+    // 2. Listen to Transactions Live Stream
+    function setupTransactionsListener() {
+      if (database) {
+        try {
+          const trxRef = ref(database, 'transactions');
+          onValue(trxRef, (snapshot) => {
+            const data = snapshot.val();
+            if (data && typeof data === 'object') {
+              processTrxData(data);
+            }
+          }, (error) => {
+            if (error && error.message && error.message.includes('Permission denied')) {
+              showPermissionBanner("Permission denied");
+            }
+            fetchTrxRest();
+          });
+        } catch(e) {
+          fetchTrxRest();
+        }
+      } else {
+        fetchTrxRest();
+      }
+    }
+
+    function fetchTrxRest() {
+      const cleanHost = activeRtdb
+        .replace('https://', '')
+        .replace('.firebaseio.com', '')
+        .replace('.asia-southeast1.firebasedatabase.app', '');
+      const urls = [
+        `https://foodrock-report-default-rtdb.asia-southeast1.firebasedatabase.app/transactions.json`,
+        `https://${cleanHost}.asia-southeast1.firebasedatabase.app/transactions.json`,
+        `https://${cleanHost}.firebaseio.com/transactions.json`,
+        `https://${cleanHost}-default-rtdb.asia-southeast1.firebasedatabase.app/transactions.json`
+      ];
+      const uniqueUrls = [...new Set(urls)];
+      uniqueUrls.forEach(url => {
+        fetch(url)
+          .then(res => res.json())
+          .then(data => {
+            if (data && typeof data === 'object') {
+              if (data.error) {
+                console.warn("RTDB notice for", url, data.error);
+              } else {
+                processTrxData(data);
+              }
+            }
+          })
+          .catch(() => {});
+      });
+    }
+
+    function processTrxData(data) {
+      if (!data || typeof data !== 'object') return;
+      const list = Object.keys(data).map(key => ({
+        id: key,
+        ...data[key]
+      }));
+
+      const existingIds = new Set(transactions.map(t => String(t.id || t.orderNumber || t.invoiceNumber)));
+      let changed = false;
+      list.forEach(item => {
+        const id = String(item.id || item.orderNumber || item.invoiceNumber || '');
+        if (!id) return;
+        if (!existingIds.has(id)) {
+          transactions.push(item);
+          existingIds.add(id);
+          changed = true;
+        } else {
+          const idx = transactions.findIndex(t => String(t.id || t.orderNumber || t.invoiceNumber) === id);
+          if (idx !== -1) {
+            transactions[idx] = { ...transactions[idx], ...item };
+            changed = true;
+          }
+        }
+      });
+
+      if (changed || transactions.length === 0) {
+        transactions.sort((a, b) => {
+          const timeA = new Date(a.timestamp || a.date || 0).getTime();
+          const timeB = new Date(b.timestamp || b.date || 0).getTime();
+          return timeB - timeA;
+        });
+        renderTrxView();
+      }
+    }
+
+    // Render Views
+    function renderShiftView() {
+      const tbody = document.getElementById('rtdb-shifts-body');
+      const badge = document.getElementById('shifts-badge');
+      const statShifts = document.getElementById('stat-total-shifts');
+      
+      if (badge) badge.textContent = `${shiftReports.length} Laporan`;
+      if (statShifts) statShifts.textContent = `${shiftReports.length} Shift`;
+
+      if (shiftReports.length === 0) {
+        tbody.innerHTML = `
+          <tr>
+            <td colspan="10" class="py-12 text-center text-slate-500">
+              Belum ada laporan tutup kasir yang tersinkron di node <code class="text-orange-400 font-mono">/shift_reports</code>.
+            </td>
+          </tr>
+        `;
+        return;
+      }
+
+      // Render Highlight Banner with Latest Shift
+      const latest = shiftReports[0];
+      const elLatestId = document.getElementById('latest-shift-id');
+      const elLatestTime = document.getElementById('latest-shift-time');
+      const elLatestCashier = document.getElementById('latest-shift-cashier');
+      const elLatestRev = document.getElementById('latest-shift-revenue');
+      const elLatestCash = document.getElementById('latest-shift-cash');
+      const elLatestDiff = document.getElementById('latest-shift-diff-badge');
+      const elLatestNotes = document.getElementById('latest-shift-notes');
+
+      if (elLatestId) elLatestId.textContent = latest.shiftNumber || latest.id;
+      if (elLatestTime) elLatestTime.textContent = formatDate(latest.timestamp || latest.endTime);
+      if (elLatestCashier) elLatestCashier.textContent = `Kasir: ${latest.cashierName || 'Kasir'}`;
+      if (elLatestRev) elLatestRev.textContent = formatRupiah(latest.totalRevenue);
+      
+      const actCashLatest = Number(latest.actualCash != null ? latest.actualCash : latest.totalCash) || 0;
+      const expCashLatest = Number(latest.expectedCash != null ? latest.expectedCash : latest.totalCash) || 0;
+      const diffLatest = Number(latest.difference != null ? latest.difference : (actCashLatest - expCashLatest));
+
+      if (elLatestCash) elLatestCash.textContent = formatRupiah(actCashLatest);
+
+      if (elLatestDiff) {
+        if (diffLatest === 0) {
+          elLatestDiff.innerHTML = `<span class="bg-emerald-500/20 text-emerald-400 border border-emerald-500/40 text-xs font-bold px-2 py-0.5 rounded-md">✓ Kas Pas</span>`;
+        } else if (diffLatest < 0) {
+          elLatestDiff.innerHTML = `<span class="bg-rose-500/20 text-rose-400 border border-rose-500/40 text-xs font-mono font-bold px-2 py-0.5 rounded-md">⚠️ Kurang ${formatRupiah(Math.abs(diffLatest))}</span>`;
+        } else {
+          elLatestDiff.innerHTML = `<span class="bg-blue-500/20 text-blue-400 border border-blue-500/40 text-xs font-mono font-bold px-2 py-0.5 rounded-md">ℹ️ Lebih ${formatRupiah(diffLatest)}</span>`;
+        }
+      }
+
+      if (elLatestNotes) elLatestNotes.textContent = latest.notes ? `Catatan: ${latest.notes}` : 'Tutup kasir berhasil tersinkron otomatis ke Realtime Database.';
+
+      document.getElementById('btn-view-latest-receipt').onclick = () => openShiftModal(latest.id);
+
+      // Render Shift Table Rows
+      tbody.innerHTML = shiftReports.map(s => {
+        const expCash = Number(s.expectedCash != null ? s.expectedCash : s.totalCash) || 0;
+        const actCash = Number(s.actualCash != null ? s.actualCash : s.totalCash) || 0;
+        const diff = Number(s.difference != null ? s.difference : (actCash - expCash));
+
+        let diffBadge = `<span class="bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 text-[10px] font-bold px-2 py-0.5 rounded-md">✓ Pas</span>`;
+        if (diff < 0) {
+          diffBadge = `<span class="bg-rose-500/10 text-rose-400 border border-rose-500/30 text-[10px] font-mono font-bold px-2 py-0.5 rounded-md whitespace-nowrap">⚠️ -${formatRupiah(Math.abs(diff))}</span>`;
+        } else if (diff > 0) {
+          diffBadge = `<span class="bg-blue-500/10 text-blue-400 border border-blue-500/30 text-[10px] font-mono font-bold px-2 py-0.5 rounded-md whitespace-nowrap">ℹ️ +${formatRupiah(diff)}</span>`;
+        }
+
+        return `
+          <tr class="hover:bg-slate-800/40 transition">
+            <td class="py-3 px-4 font-semibold text-white">
+              ${s.shiftNumber || s.id}
+              <div class="text-[10px] text-slate-500 font-mono">${formatDate(s.timestamp || s.endTime)}</div>
+            </td>
+            <td class="py-3 px-4 text-slate-300 font-medium">${s.cashierName || 'Kasir'}</td>
+            <td class="py-3 px-4 text-center font-bold font-mono text-slate-300">${s.totalTransactions || 0}</td>
+            <td class="py-3 px-4 text-right font-black font-mono text-emerald-400">${formatRupiah(s.totalRevenue)}</td>
+            <td class="py-3 px-4 text-right font-mono text-slate-400">${formatRupiah(expCash)}</td>
+            <td class="py-3 px-4 text-right font-bold font-mono text-amber-400">${formatRupiah(actCash)}</td>
+            <td class="py-3 px-4 text-center">${diffBadge}</td>
+            <td class="py-3 px-4 text-right font-mono text-purple-400">${formatRupiah(s.totalNonCash)}</td>
+            <td class="py-3 px-4 text-slate-400 italic max-w-xs truncate">${s.notes || '-'}</td>
+            <td class="py-3 px-4 text-center no-print">
+              <button onclick="window.openShiftModal('${s.id}')" class="px-2.5 py-1 text-[11px] font-bold rounded-lg bg-orange-500/10 hover:bg-orange-500/20 text-orange-400 border border-orange-500/30 transition cursor-pointer flex items-center gap-1 mx-auto whitespace-nowrap">
+                <span>📋</span> Detail
+              </button>
+            </td>
+          </tr>
+        `;
+      }).join('');
+
+      // Recalculate daily totals
+      const totalRev = shiftReports.reduce((acc, s) => acc + (Number(s.totalRevenue) || 0), 0);
+      const totalCash = shiftReports.reduce((acc, s) => acc + (Number(s.actualCash != null ? s.actualCash : s.totalCash) || 0), 0);
+      const totalNonCash = shiftReports.reduce((acc, s) => acc + (Number(s.totalNonCash) || 0), 0);
+      const totalTrxCount = shiftReports.reduce((acc, s) => acc + (Number(s.totalTransactions) || 0), 0);
+
+      document.getElementById('stat-total-revenue').textContent = formatRupiah(totalRev);
+      document.getElementById('stat-total-cash').textContent = formatRupiah(totalCash);
+      document.getElementById('stat-total-noncash').textContent = formatRupiah(totalNonCash);
+      document.getElementById('stat-total-trx').textContent = `${totalTrxCount} Struk`;
+    }
+
+    let currentModalTrx = null;
+    let paymentFilter = 'ALL';
+    let searchKeyword = '';
+
+    function renderTrxView() {
+      const tbody = document.getElementById('rtdb-trx-body');
+      const badge = document.getElementById('trx-badge');
+      if (badge) badge.textContent = `${transactions.length} Transaksi`;
+
+      let filtered = transactions.filter(t => {
+        // Payment filter
+        if (paymentFilter !== 'ALL') {
+          const m = (t.paymentMethod || 'TUNAI').toUpperCase();
+          if (m !== paymentFilter) return false;
+        }
+        // Search keyword
+        if (searchKeyword) {
+          const query = searchKeyword.toLowerCase();
+          const inv = (t.orderNumber || t.invoiceNumber || t.id || '').toLowerCase();
+          const cust = (t.customerName || '').toLowerCase();
+          const cash = (t.cashierName || '').toLowerCase();
+          const items = (t.itemsSummary || '').toLowerCase();
+          if (!inv.includes(query) && !cust.includes(query) && !cash.includes(query) && !items.includes(query)) {
+            return false;
+          }
+        }
+        return true;
+      });
+
+      if (filtered.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="7" class="py-12 text-center text-slate-500">Tidak ada transaksi yang cocok dengan filter atau kata kunci.</td></tr>`;
+        return;
+      }
+
+      tbody.innerHTML = filtered.map(t => {
+        const inv = t.orderNumber || t.invoiceNumber || t.id;
+        const total = Number(t.grandTotal || t.totalAmount) || 0;
+        const payMethod = t.paymentMethod || 'TUNAI';
+        const table = t.tableNumber ? ` • Meja ${t.tableNumber}` : '';
+        const orderType = t.orderType ? ` (${t.orderType})` : '';
+
+        return `
+          <tr class="hover:bg-slate-800/40 transition">
+            <td class="py-3 px-4 font-mono font-semibold text-white">
+              <span class="text-orange-400 font-bold">${inv}</span>
+              <div class="text-[10px] text-slate-500">${formatDate(t.timestamp)}</div>
+            </td>
+            <td class="py-3 px-4 text-slate-300 font-medium">
+              ${t.customerName || 'Umum'}
+              <div class="text-[10px] text-slate-500">${orderType}${table}</div>
+            </td>
+            <td class="py-3 px-4 text-slate-400">${t.cashierName || 'Kasir'}</td>
+            <td class="py-3 px-4 text-slate-300 max-w-xs truncate" title="${t.itemsSummary || '-'}">${t.itemsSummary || '-'}</td>
+            <td class="py-3 px-4">
+              <span class="px-2 py-0.5 rounded text-[10px] font-bold ${payMethod === 'TUNAI' ? 'bg-amber-500/10 text-amber-400 border border-amber-500/30' : 'bg-purple-500/10 text-purple-400 border border-purple-500/30'}">
+                ${payMethod}
+              </span>
+            </td>
+            <td class="py-3 px-4 text-right font-black font-mono text-emerald-400">${formatRupiah(total)}</td>
+            <td class="py-3 px-4 text-center no-print">
+              <button onclick="window.openTransactionModal('${inv}')" class="px-2.5 py-1 text-[11px] font-bold rounded-lg bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 transition cursor-pointer flex items-center gap-1 mx-auto whitespace-nowrap">
+                <span>🧾</span> Buka Struk
+              </button>
+            </td>
+          </tr>
+        `;
+      }).join('');
+    }
+
+    // Modal Transaction Detail Logic
+    window.openTransactionModal = function(invoiceNumber) {
+      const trx = transactions.find(t => (t.orderNumber === invoiceNumber || t.invoiceNumber === invoiceNumber || t.id === invoiceNumber));
+      if (!trx) return;
+      currentModalTrx = trx;
+
+      document.getElementById('trx-invoice-no').textContent = trx.orderNumber || trx.invoiceNumber || trx.id;
+      document.getElementById('trx-date-time').textContent = formatDate(trx.timestamp);
+      document.getElementById('trx-cashier').textContent = trx.cashierName || 'Kasir';
+      document.getElementById('trx-customer').textContent = trx.customerName || 'Pelanggan Umum';
+      
+      const typeStr = trx.orderType || 'DINE_IN';
+      const tblStr = trx.tableNumber ? ` / Meja ${trx.tableNumber}` : '';
+      document.getElementById('trx-type-table').textContent = `${typeStr}${tblStr}`;
+
+      // Render items container
+      const container = document.getElementById('trx-items-container');
+      const items = Array.isArray(trx.items) ? trx.items : [];
+
+      if (items.length > 0) {
+        container.innerHTML = items.map(item => `
+          <div class="flex justify-between items-start py-1 border-b border-slate-800/40">
+            <div>
+              <div class="font-bold text-white text-xs">${item.productName || 'Produk'}</div>
+              <div class="text-[10px] text-slate-400 font-mono">${item.quantity} x ${formatRupiah(item.unitPrice)}</div>
+              ${item.notes ? `<div class="text-[10px] text-amber-400/80 italic">Catatan: ${item.notes}</div>` : ''}
+            </div>
+            <div class="font-mono font-bold text-slate-200 text-xs">${formatRupiah(item.subtotal)}</div>
+          </div>
+        `).join('');
+      } else {
+        container.innerHTML = `
+          <div class="py-2 text-slate-400 text-xs italic bg-slate-950 p-2.5 rounded-lg border border-slate-800">
+            ${trx.itemsSummary || 'Ringkasan item tidak tersedia'}
+          </div>
+        `;
+      }
+
+      const subtotal = Number(trx.subtotalAmount || trx.totalAmount || trx.grandTotal) || 0;
+      const discount = Number(trx.discountAmount) || 0;
+      const tax = Number(trx.taxAmount) || 0;
+      const grandTotal = Number(trx.grandTotal || trx.totalAmount) || 0;
+      const payMethod = trx.paymentMethod || 'TUNAI';
+
+      document.getElementById('trx-subtotal').textContent = formatRupiah(subtotal);
+
+      const discountRow = document.getElementById('trx-discount-row');
+      if (discount > 0) {
+        discountRow.classList.remove('hidden');
+        document.getElementById('trx-discount').textContent = `-${formatRupiah(discount)}`;
+      } else {
+        discountRow.classList.add('hidden');
+      }
+
+      const taxRow = document.getElementById('trx-tax-row');
+      if (tax > 0) {
+        taxRow.classList.remove('hidden');
+        document.getElementById('trx-tax').textContent = formatRupiah(tax);
+      } else {
+        taxRow.classList.add('hidden');
+      }
+
+      document.getElementById('trx-grandtotal').textContent = formatRupiah(grandTotal);
+      document.getElementById('trx-pay-method').textContent = payMethod;
+
+      const cashDetails = document.getElementById('trx-cash-details');
+      if (payMethod === 'TUNAI' && (trx.cashGiven != null || trx.amountPaid != null)) {
+        cashDetails.classList.remove('hidden');
+        const given = Number(trx.cashGiven != null ? trx.cashGiven : trx.amountPaid) || 0;
+        const change = Number(trx.changeAmount) || 0;
+        document.getElementById('trx-amount-paid').textContent = formatRupiah(given);
+        document.getElementById('trx-change-amount').textContent = formatRupiah(change);
+      } else {
+        cashDetails.classList.add('hidden');
+      }
+
+      document.getElementById('modal-trx-detail').classList.remove('hidden');
+    };
+
+    document.getElementById('btn-close-trx-modal')?.addEventListener('click', () => {
+      document.getElementById('modal-trx-detail')?.classList.add('hidden');
+    });
+    document.getElementById('btn-trx-modal-done')?.addEventListener('click', () => {
+      document.getElementById('modal-trx-detail')?.classList.add('hidden');
+    });
+
+    // Share Trx to WhatsApp
+    document.getElementById('btn-trx-wa-share')?.addEventListener('click', () => {
+      if (!currentModalTrx) return;
+      const t = currentModalTrx;
+      const inv = t.orderNumber || t.invoiceNumber || t.id;
+      const total = Number(t.grandTotal || t.totalAmount) || 0;
+      const itemsText = Array.isArray(t.items) && t.items.length > 0 
+        ? t.items.map(it => `• ${it.productName} (${it.quantity}x) = ${formatRupiah(it.subtotal)}`).join('\n')
+        : (t.itemsSummary || '-');
+
+      const text = `*🧾 STRUK PEMBELIAN ONLINE*\n` +
+                   `🏪 Toko: FOODROCK POS\n` +
+                   `📋 No: ${inv}\n` +
+                   `🕒 Waktu: ${formatDate(t.timestamp)}\n` +
+                   `👤 Pelanggan: ${t.customerName || 'Umum'}\n` +
+                   `👨‍💼 Kasir: ${t.cashierName || 'Kasir'}\n` +
+                   `━━━━━━━━━━━━━━━━━━━━\n` +
+                   `PESANAN:\n${itemsText}\n` +
+                   `━━━━━━━━━━━━━━━━━━━━\n` +
+                   `💰 Total: ${formatRupiah(total)}\n` +
+                   `💳 Pembayaran: ${t.paymentMethod || 'TUNAI'}\n` +
+                   `━━━━━━━━━━━━━━━━━━━━\n` +
+                   `Terima kasih atas kunjungan Anda!\n` +
+                   `_Disinkronkan otomatis via Firebase Realtime Database_`;
+
+      window.open(`https://api.whatsapp.com/send?text=${encodeURIComponent(text)}`, '_blank');
+    });
+
+    // Filter Listeners
+    document.getElementById('input-search-trx')?.addEventListener('input', (e) => {
+      searchKeyword = e.target.value.trim();
+      renderTrxView();
+    });
+
+    document.querySelectorAll('.filter-pay-btn').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        document.querySelectorAll('.filter-pay-btn').forEach(b => {
+          b.classList.remove('bg-orange-600', 'text-white');
+          b.classList.add('bg-slate-800', 'text-slate-400');
+        });
+        const target = e.currentTarget;
+        target.classList.remove('bg-slate-800', 'text-slate-400');
+        target.classList.add('bg-orange-600', 'text-white');
+        paymentFilter = target.getAttribute('data-filter') || 'ALL';
+        renderTrxView();
+      });
+    });
+
+    // Modal Shift Details Logic
+    window.openShiftModal = function(shiftId) {
+      const shift = shiftReports.find(s => s.id === shiftId || s.shiftNumber === shiftId);
+      if (!shift) return;
+      currentModalShift = shift;
+
+      document.getElementById('modal-shift-name').textContent = shift.shiftNumber || shift.id;
+      document.getElementById('modal-shift-date').textContent = formatDate(shift.timestamp || shift.endTime);
+      document.getElementById('modal-cashier-name').textContent = shift.cashierName || 'Kasir';
+      document.getElementById('modal-trx-count').textContent = `${shift.totalTransactions || 0} Struk`;
+      document.getElementById('modal-total-rev').textContent = formatRupiah(shift.totalRevenue);
+      document.getElementById('modal-cash-rev').textContent = formatRupiah(shift.totalCash);
+      document.getElementById('modal-noncash-rev').textContent = formatRupiah(shift.totalNonCash);
+
+      const expCash = Number(shift.expectedCash != null ? shift.expectedCash : shift.totalCash) || 0;
+      const actCash = Number(shift.actualCash != null ? shift.actualCash : shift.totalCash) || 0;
+      const diff = Number(shift.difference != null ? shift.difference : (actCash - expCash));
+
+      document.getElementById('modal-expected-cash').textContent = formatRupiah(expCash);
+      document.getElementById('modal-actual-cash').textContent = formatRupiah(actCash);
+
+      const diffStatus = document.getElementById('modal-diff-status');
+      if (diff === 0) {
+        diffStatus.innerHTML = `<span class="text-emerald-400">✓ Uang Kas Pas (Rp 0)</span>`;
+      } else if (diff < 0) {
+        diffStatus.innerHTML = `<span class="text-rose-400">⚠️ Selisih Kurang: -${formatRupiah(Math.abs(diff))}</span>`;
+      } else {
+        diffStatus.innerHTML = `<span class="text-blue-400">ℹ️ Selisih Lebih: +${formatRupiah(diff)}</span>`;
+      }
+
+      document.getElementById('modal-shift-notes').textContent = shift.notes || 'Tidak ada catatan kasir.';
+
+      document.getElementById('modal-shift').classList.remove('hidden');
+    };
+
+    document.getElementById('btn-close-modal')?.addEventListener('click', () => {
+      document.getElementById('modal-shift')?.classList.add('hidden');
+    });
+    document.getElementById('btn-modal-done')?.addEventListener('click', () => {
+      document.getElementById('modal-shift')?.classList.add('hidden');
+    });
+
+    // Share to WhatsApp
+    document.getElementById('btn-wa-share')?.addEventListener('click', () => {
+      if (!currentModalShift) return;
+      const s = currentModalShift;
+      const exp = Number(s.expectedCash != null ? s.expectedCash : s.totalCash) || 0;
+      const act = Number(s.actualCash != null ? s.actualCash : s.totalCash) || 0;
+      const diff = Number(s.difference != null ? s.difference : (act - exp));
+      const diffLabel = diff === 0 ? "Pas (Rp 0)" : (diff < 0 ? `Kurang -${formatRupiah(Math.abs(diff))}` : `Lebih +${formatRupiah(diff)}`);
+
+      const text = `*🔒 LAPORAN TUTUP KASIR (REALTIME DB)*\n` +
+                   `🏪 Toko: Foodrock POS\n` +
+                   `📋 Shift: ${s.shiftNumber || s.id}\n` +
+                   `👤 Kasir: ${s.cashierName}\n` +
+                   `🕒 Waktu: ${formatDate(s.timestamp || s.endTime)}\n` +
+                   `━━━━━━━━━━━━━━━━━━━━\n` +
+                   `💰 Total Omset: ${formatRupiah(s.totalRevenue)}\n` +
+                   `💵 Kas Tunai: ${formatRupiah(s.totalCash)}\n` +
+                   `💳 Non-Tunai (QRIS): ${formatRupiah(s.totalNonCash)}\n` +
+                   `🧾 Total Struk: ${s.totalTransactions || 0}\n` +
+                   `━━━━━━━━━━━━━━━━━━━━\n` +
+                   `💼 Kas Sistem: ${formatRupiah(exp)}\n` +
+                   `💵 Kas Fisik Laci: ${formatRupiah(act)}\n` +
+                   `⚖️ Status Kas: ${diffLabel}\n` +
+                   `📝 Catatan: ${s.notes || '-'}\n\n` +
+                   `_Otomatis terunggah real-time via Firebase Realtime Database._`;
+
+      window.open(`https://api.whatsapp.com/send?text=${encodeURIComponent(text)}`, '_blank');
+    });
+
+    // Tab Switching
+    const btnTabShifts = document.getElementById('btn-tab-shifts');
+    const btnTabTrx = document.getElementById('btn-tab-trx');
+    const viewShifts = document.getElementById('view-shifts-section');
+    const viewTrx = document.getElementById('view-trx-section');
+
+    btnTabShifts?.addEventListener('click', () => {
+      btnTabShifts.classList.remove('bg-slate-900', 'text-slate-400');
+      btnTabShifts.classList.add('bg-orange-600', 'text-white');
+      btnTabTrx.classList.remove('bg-orange-600', 'text-white');
+      btnTabTrx.classList.add('bg-slate-900', 'text-slate-400');
+      viewShifts.classList.remove('hidden');
+      viewTrx.classList.add('hidden');
+    });
+
+    btnTabTrx?.addEventListener('click', () => {
+      btnTabTrx.classList.remove('bg-slate-900', 'text-slate-400');
+      btnTabTrx.classList.add('bg-orange-600', 'text-white');
+      btnTabShifts.classList.remove('bg-orange-600', 'text-white');
+      btnTabShifts.classList.add('bg-slate-900', 'text-slate-400');
+      viewTrx.classList.remove('hidden');
+      viewShifts.classList.add('hidden');
+    });
+
+    // Config Modal
+    document.getElementById('btn-open-config')?.addEventListener('click', () => {
+      document.getElementById('cfg-rtdb-host').value = activeRtdb;
+      document.getElementById('modal-config')?.classList.remove('hidden');
+    });
+    document.getElementById('btn-close-config')?.addEventListener('click', () => {
+      document.getElementById('modal-config')?.classList.add('hidden');
+    });
+    document.getElementById('btn-save-config')?.addEventListener('click', () => {
+      const newHost = document.getElementById('cfg-rtdb-host').value.trim();
+      if (newHost) {
+        localStorage.setItem('pos_rtdb_target', newHost);
+        window.location.search = `?db=${encodeURIComponent(newHost)}`;
+      }
+    });
+    document.getElementById('btn-reset-config')?.addEventListener('click', () => {
+      localStorage.removeItem('pos_rtdb_target');
+      window.location.search = `?db=${DEFAULT_RTDB}`;
+    });
+
+    document.getElementById('btn-manual-refresh')?.addEventListener('click', () => {
+      setupShiftListener();
+      setupTransactionsListener();
+    });
+
+    // Live Clock Ticker
+    setInterval(() => {
+      const el = document.getElementById('live-time-ticker');
+      if (el) {
+        el.textContent = `RTDB Live: ${new Date().toLocaleTimeString('id-ID')}`;
+      }
+    }, 1000);
+
+    // Initial Start
+    setupShiftListener();
+    setupTransactionsListener();
+    setInterval(() => {
+      fetchShiftRest();
+      fetchTrxRest();
+    }, 15000);
+  </script>
+</body>
+</html>

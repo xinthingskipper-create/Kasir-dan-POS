@@ -1,0 +1,6 @@
+{
+  "name": "Kasir POS",
+  "description": "Aplikasi Kasir POS modern dengan inventaris barang, laporan penjualan real-time, splash screen, otentikasi login admin & karyawan, serta integrasi cetak struk via bluetooth.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

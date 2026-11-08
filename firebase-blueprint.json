@@ -1,0 +1,80 @@
+{
+  "entities": {
+    "Transaction": {
+      "title": "Transaction",
+      "description": "Sales transaction recorded at POS",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "orderNumber": { "type": "string" },
+        "customerName": { "type": "string" },
+        "orderType": { "type": "string", "enum": ["DINE_IN", "TAKE_AWAY"] },
+        "tableNumber": { "type": "string" },
+        "itemsSummary": { "type": "string" },
+        "totalAmount": { "type": "number" },
+        "paymentMethod": { "type": "string" },
+        "cashGiven": { "type": "number" },
+        "changeAmount": { "type": "number" },
+        "cashierName": { "type": "string" },
+        "cashierRole": { "type": "string" },
+        "timestamp": { "type": "string", "format": "date-time" },
+        "date": { "type": "string" },
+        "storeId": { "type": "string" },
+        "userId": { "type": "string" }
+      },
+      "required": ["id", "orderNumber", "totalAmount", "paymentMethod", "cashierName", "date", "storeId", "userId"]
+    },
+    "ShiftReport": {
+      "title": "ShiftReport",
+      "description": "Tutup Kasir shift closure report for store owner",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "shiftNumber": { "type": "string" },
+        "cashierName": { "type": "string" },
+        "cashierRole": { "type": "string" },
+        "startTime": { "type": "string" },
+        "endTime": { "type": "string" },
+        "totalTransactions": { "type": "number" },
+        "totalRevenue": { "type": "number" },
+        "totalCash": { "type": "number" },
+        "totalNonCash": { "type": "number" },
+        "itemsSold": { "type": "number" },
+        "notes": { "type": "string" },
+        "timestamp": { "type": "string", "format": "date-time" },
+        "date": { "type": "string" },
+        "storeId": { "type": "string" },
+        "userId": { "type": "string" }
+      },
+      "required": ["id", "cashierName", "totalTransactions", "totalRevenue", "date", "storeId", "userId"]
+    },
+    "StoreProfile": {
+      "title": "StoreProfile",
+      "description": "Store profile and metadata",
+      "type": "object",
+      "properties": {
+        "storeName": { "type": "string" },
+        "address": { "type": "string" },
+        "phone": { "type": "string" },
+        "footerMessage": { "type": "string" },
+        "updatedAt": { "type": "string", "format": "date-time" },
+        "userId": { "type": "string" }
+      },
+      "required": ["storeName", "address", "phone", "userId"]
+    }
+  },
+  "firestore": {
+    "/transactions/{transactionId}": {
+      "schema": { "$ref": "#/entities/Transaction" },
+      "description": "POS sales transactions"
+    },
+    "/shift_reports/{reportId}": {
+      "schema": { "$ref": "#/entities/ShiftReport" },
+      "description": "Shift closure reports for owner inspection"
+    },
+    "/store_profile/{storeId}": {
+      "schema": { "$ref": "#/entities/StoreProfile" },
+      "description": "Store configuration and profile information"
+    }
+  }
+}

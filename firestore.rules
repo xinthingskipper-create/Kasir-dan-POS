@@ -1,0 +1,77 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Helper functions
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    // Schema validation for Transactions
+    function isValidTransaction(data) {
+      return data.id is string
+        && data.orderNumber is string
+        && data.totalAmount is number
+        && data.totalAmount >= 0
+        && data.paymentMethod is string
+        && data.cashierName is string
+        && data.date is string
+        && data.storeId is string
+        && data.userId is string;
+    }
+
+    // Schema validation for Shift Reports
+    function isValidShiftReport(data) {
+      return data.id is string
+        && data.cashierName is string
+        && data.totalTransactions is number
+        && data.totalTransactions >= 0
+        && data.totalRevenue is number
+        && data.totalRevenue >= 0
+        && data.date is string
+        && data.storeId is string
+        && data.userId is string;
+    }
+
+    // Schema validation for Store Profile
+    function isValidStoreProfile(data) {
+      return data.storeName is string
+        && data.address is string
+        && data.phone is string
+        && data.userId is string;
+    }
+
+    // Transactions Collection (Penjualan Kasir POS Real-Time)
+    match /transactions/{transactionId} {
+      allow read, write: if true;
+    }
+
+    // Shift Reports Collection (Laporan Tutup Kasir & Rekapitulasi Real-Time)
+    match /shift_reports/{reportId} {
+      allow read, write: if true;
+    }
+
+    // Store Profile Collection (Informasi Toko / Outlet)
+    match /store_profile/{storeId} {
+      allow read: if true; // Diizinkan untuk aplikasi POS dan portal web
+      allow write: if isValidStoreProfile(request.resource.data);
+    }
+
+    // Products Collection (Katalog Produk bila disinkronkan)
+    match /products/{productId} {
+      allow read: if true;
+      allow write: if true;
+    }
+
+    // Real-time Dashboard Live Statistics
+    match /realtime_stats/{statId} {
+      allow read: if true;
+      allow write: if true;
+    }
+
+    // Cloud Connection Ping Test
+    match /_ping_check/{docId} {
+      allow read, write: if true;
+    }
+  }
+}

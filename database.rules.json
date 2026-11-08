@@ -1,0 +1,21 @@
+{
+  "rules": {
+    ".read": true,
+    ".write": true,
+    "transactions": {
+      ".indexOn": ["timestamp", "date", "storeId", "cashierName", "paymentMethod"]
+    },
+    "shift_reports": {
+      ".indexOn": ["timestamp", "date", "storeId", "cashierName"]
+    },
+    "daily_reports": {
+      ".indexOn": ["date", "lastUpdated"]
+    },
+    "customer_tracking": {
+      ".indexOn": ["orderNumber", "date", "status"]
+    },
+    "products": {
+      ".indexOn": ["category", "barcode", "name"]
+    }
+  }
+}

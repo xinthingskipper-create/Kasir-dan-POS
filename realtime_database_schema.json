@@ -1,0 +1,121 @@
+{
+  "transactions": {
+    "TRX-20261103-0001": {
+      "id": "TRX-20261103-0001",
+      "orderNumber": "TRX-20261103-0001",
+      "customerName": "Budi Santoso",
+      "orderType": "DINE_IN",
+      "tableNumber": "Meja 04",
+      "itemsSummary": "Nasi Goreng Spesial (2x), Es Teh Manis (2x)",
+      "totalAmount": 65000,
+      "profitAmount": 28000,
+      "totalItemsCount": 4,
+      "paymentMethod": "QRIS",
+      "cashGiven": 65000,
+      "changeAmount": 0,
+      "cashierName": "Siti Kasir",
+      "cashierRole": "Kasir",
+      "timestamp": "2026-11-03T12:00:00Z",
+      "date": "2026-11-03",
+      "storeId": "foodrock-main",
+      "notes": "Pedas sedang"
+    }
+  },
+  "shift_reports": {
+    "SHIFT-20261103-01": {
+      "id": "SHIFT-20261103-01",
+      "shiftNumber": "Shift-Pagi",
+      "cashierName": "Siti Kasir",
+      "cashierRole": "Kasir Pagi",
+      "startTime": "2026-11-03T07:00:00Z",
+      "endTime": "2026-11-03T15:00:00Z",
+      "startingCash": 200000,
+      "cashSales": 450000,
+      "qrisSales": 320000,
+      "transferSales": 150000,
+      "totalRevenue": 920000,
+      "totalProfit": 410000,
+      "expectedCashInDrawer": 650000,
+      "actualCashInDrawer": 650000,
+      "cashDifference": 0,
+      "transactionCount": 18,
+      "notes": "Kas laci pas sesuai sistem",
+      "date": "2026-11-03",
+      "storeId": "foodrock-main",
+      "status": "CLOSED"
+    }
+  },
+  "daily_reports": {
+    "2026-11-03": {
+      "date": "2026-11-03",
+      "storeId": "foodrock-main",
+      "totalRevenue": 920000,
+      "totalProfit": 410000,
+      "totalTransactions": 18,
+      "totalCash": 450000,
+      "totalQris": 320000,
+      "totalTransfer": 150000,
+      "lastUpdated": "2026-11-03T15:00:00Z"
+    }
+  },
+  "realtime_stats": {
+    "today": {
+      "lastTransactionAmount": 65000,
+      "lastInvoiceNumber": "TRX-20261103-0001",
+      "lastCustomerName": "Budi Santoso",
+      "lastPaymentMethod": "QRIS",
+      "lastCashierName": "Siti Kasir",
+      "todayRevenue": 920000,
+      "todayTransactionsCount": 18,
+      "lastUpdated": "2026-11-03T12:00:00Z",
+      "date": "2026-11-03",
+      "storeId": "foodrock-main"
+    }
+  },
+  "customer_tracking": {
+    "TRX-20261103-0001": {
+      "orderNumber": "TRX-20261103-0001",
+      "customerName": "Budi Santoso",
+      "orderType": "DINE_IN",
+      "itemsSummary": "Nasi Goreng Spesial (2x), Es Teh Manis (2x)",
+      "totalAmount": 65000,
+      "status": "SELESAI",
+      "paymentStatus": "LUNAS",
+      "date": "2026-11-03",
+      "timestamp": "2026-11-03T12:00:00Z"
+    }
+  },
+  "store_profile": {
+    "storeName": "Foodrock POS",
+    "storeAddress": "Jl. Kuliner No. 88",
+    "storePhone": "081234567890",
+    "receiptFooter": "Terima kasih atas kunjungan Anda!",
+    "currency": "Rp",
+    "projectId": "foodrock-report",
+    "databaseId": "foodrock-report-default-rtdb"
+  },
+  "products": {
+    "PRD-001": {
+      "id": "PRD-001",
+      "name": "Nasi Goreng Spesial",
+      "category": "Makanan",
+      "buyPrice": 15000,
+      "sellPrice": 25000,
+      "stock": 48,
+      "minStockAlert": 10,
+      "unit": "porsi",
+      "barcode": "899123456001"
+    },
+    "PRD-002": {
+      "id": "PRD-002",
+      "name": "Es Teh Manis",
+      "category": "Minuman",
+      "buyPrice": 2500,
+      "sellPrice": 6000,
+      "stock": 95,
+      "minStockAlert": 15,
+      "unit": "gelas",
+      "barcode": "899123456002"
+    }
+  }
+}
