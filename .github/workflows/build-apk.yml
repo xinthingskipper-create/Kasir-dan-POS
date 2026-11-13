@@ -1,0 +1,183 @@
+name: Build Android APK
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build Fahfile APK
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Source Code
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '21'
+
+      - name: Setup Android SDK Environment & Licenses
+        run: |
+          echo "Menyiapkan environment Android SDK..."
+          ANDROID_HOME="${ANDROID_HOME:-/usr/local/lib/android/sdk}"
+          ANDROID_SDK_ROOT="${ANDROID_SDK_ROOT:-$ANDROID_HOME}"
+          export ANDROID_HOME ANDROID_SDK_ROOT
+          echo "ANDROID_HOME=$ANDROID_HOME" >> "$GITHUB_ENV"
+          echo "ANDROID_SDK_ROOT=$ANDROID_SDK_ROOT" >> "$GITHUB_ENV"
+
+          if [ ! -d "$ANDROID_HOME" ]; then
+            echo "::error::Direktori Android SDK tidak ditemukan di $ANDROID_HOME"
+            exit 1
+          fi
+
+          # Menyetujui lisensi Android SDK melalui sdkmanager agar AGP dapat
+          # mengunduh platform/build-tools (Android 36.1 / Build Tools) bila belum tersedia.
+          mkdir -p "$ANDROID_HOME/licenses"
+          SDKMANAGER=""
+          if [ -x "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" ]; then
+            SDKMANAGER="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          elif [ -x "$ANDROID_HOME/tools/bin/sdkmanager" ]; then
+            SDKMANAGER="$ANDROID_HOME/tools/bin/sdkmanager"
+          fi
+
+          if [ -n "$SDKMANAGER" ]; then
+            set +o pipefail
+            yes | "$SDKMANAGER" --licenses >/dev/null || true
+            set -o pipefail
+            echo "Lisensi Android SDK berhasil diproses menggunakan sdkmanager"
+          else
+            echo "::warning::sdkmanager tidak ditemukan di $ANDROID_HOME; mengandalkan lisensi yang sudah terpasang."
+          fi
+
+      - name: Set up Gradle 9.3.1
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '9.3.1'
+
+      - name: Prepare .env and Debug Keystore
+        run: |
+          echo "Memeriksa file konfigurasi wajib proyek..."
+
+          if [ ! -f ".env" ]; then
+            if [ -f ".env.example" ]; then
+              cp .env.example .env
+              echo "File .env dibuat dari .env.example (untuk Secrets Gradle Plugin)"
+            else
+              touch .env
+              echo "File .env kosong dibuat"
+            fi
+          fi
+
+          if [ ! -f "debug.keystore" ]; then
+            if [ -f "debug.keystore.base64" ]; then
+              base64 -d debug.keystore.base64 > debug.keystore
+              echo "debug.keystore berhasil didekodekan dari debug.keystore.base64"
+            else
+              echo "Membuat debug.keystore baru dengan keytool..."
+              keytool -genkeypair -v \
+                -keystore debug.keystore \
+                -storepass android \
+                -alias androiddebugkey \
+                -keypass android \
+                -keyalg RSA \
+                -keysize 2048 \
+                -validity 10000 \
+                -dname "CN=Android Debug,O=Android,C=US" >/dev/null
+              echo "debug.keystore berhasil dibuat"
+            fi
+          fi
+
+      - name: Select Gradle Runner (Wrapper or Installed Gradle)
+        run: |
+          if [ -f "./gradlew" ]; then
+            chmod +x ./gradlew
+            echo "GRADLE_CMD=./gradlew" >> "$GITHUB_ENV"
+            echo "Menggunakan Gradle Wrapper (./gradlew)"
+          elif command -v gradle >/dev/null 2>&1; then
+            echo "GRADLE_CMD=gradle" >> "$GITHUB_ENV"
+            echo "File ./gradlew tidak tersedia di repo; menggunakan Gradle 9.3.1 dari setup-gradle."
+          else
+            echo "::error::Baik ./gradlew maupun executable gradle tidak ditemukan."
+            exit 1
+          fi
+
+      - name: Build Debug APK with Gradle
+        run: |
+          echo "Memulai proses kompilasi :app:assembleDebug dengan $GRADLE_CMD..."
+          "$GRADLE_CMD" :app:assembleDebug \
+            --no-daemon \
+            --no-configuration-cache \
+            --stacktrace \
+            -Pandroid.builder.sdkDownload=true
+
+      - name: Collect APK Files
+        run: |
+          echo "Mengumpulkan file APK hasil build..."
+          mkdir -p build-apks
+
+          if [ ! -d "app/build/outputs/apk" ]; then
+            echo "::error::Direktori app/build/outputs/apk tidak ditemukan setelah build!"
+            exit 1
+          fi
+
+          while IFS= read -r -d '' apk_file; do
+            base_name="$(basename "$apk_file")"
+            target_path="build-apks/$base_name"
+            if [ -e "$target_path" ]; then
+              parent_tag="$(basename "$(dirname "$apk_file")")"
+              target_path="build-apks/${parent_tag}-${base_name}"
+            fi
+            cp -v "$apk_file" "$target_path"
+          done < <(find app/build/outputs/apk -type f -name "*.apk" -print0)
+
+          APK_COUNT=$(find build-apks -maxdepth 1 -type f -name "*.apk" | wc -l)
+          if [ "$APK_COUNT" -eq 0 ]; then
+            echo "::error::Tidak ada file APK yang ditemukan setelah :app:assembleDebug!"
+            exit 1
+          fi
+
+          echo "Ditemukan $APK_COUNT file APK:"
+          ls -lh build-apks/
+
+      - name: Upload APK Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: fahfile-debug-apk
+          path: build-apks/*.apk
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Print Build Diagnostics on Failure
+        if: failure()
+        run: |
+          echo "=============================================="
+          echo "BUILD GAGAL - DETAIL DIAGNOSTIK"
+          echo "=============================================="
+          echo "Versi Java:"
+          java -version || true
+          echo "----------------------------------------------"
+          echo "Versi Gradle:"
+          if [ -n "${GRADLE_CMD:-}" ]; then
+            "$GRADLE_CMD" --version || true
+          elif command -v gradle >/dev/null 2>&1; then
+            gradle --version || true
+          fi
+          echo "----------------------------------------------"
+          echo "Android SDK Root: ${ANDROID_SDK_ROOT:-tidak diset}"
+          if [ -d "${ANDROID_SDK_ROOT:-}/platforms" ]; then
+            ls -1 "$ANDROID_SDK_ROOT/platforms" || true
+          fi
+          echo "----------------------------------------------"
+          echo "Struktur Direktori Root (tanpa isi secret):"
+          ls -la
+          echo "----------------------------------------------"
+          echo "Struktur Direktori app/:"
+          ls -la app/ || true
+          echo "=============================================="
