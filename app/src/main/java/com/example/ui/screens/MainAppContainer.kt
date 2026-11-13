@@ -1,6 +1,10 @@
 package com.example.ui.screens
 
+import android.Manifest
+import android.os.Build
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -51,7 +55,9 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -84,6 +90,25 @@ fun MainAppContainer(viewModel: PosViewModel) {
     val receiptItems by viewModel.activeReceiptItems.collectAsState()
 
     var showLogoutDialog by remember { mutableStateOf(false) }
+
+    val context = LocalContext.current
+    val notificationPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        if (granted) {
+            viewModel.ensureBackgroundServiceStarted()
+            viewModel.checkLowStockAndNotify(forceAlert = true)
+        }
+    }
+
+    LaunchedEffect(Unit) {
+        viewModel.ensureBackgroundServiceStarted()
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+            !com.example.service.PosNotificationHelper.hasNotificationPermission(context)
+        ) {
+            notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+        }
+    }
 
     // Role-based tabs
     val tabs = remember(currentUser) {
@@ -482,7 +507,7 @@ private fun CompactTopAppBar(
     onLogoutClick: () -> Unit,
     showLogoutButton: Boolean
 ) {
-    val barHeight = if (isWideScreen) 42.dp else 38.dp
+    val barHeight = if (isWideScreen) 48.dp else 44.dp
     val primaryColor = MaterialTheme.colorScheme.primary
 
     Surface(
@@ -520,16 +545,16 @@ private fun CompactTopAppBar(
                 ) {
                     // Mini Store Icon Pill
                     Surface(
-                        shape = RoundedCornerShape(7.dp),
+                        shape = RoundedCornerShape(8.dp),
                         color = Color.White.copy(alpha = 0.16f),
-                        modifier = Modifier.size(if (isWideScreen) 26.dp else 22.dp)
+                        modifier = Modifier.size(if (isWideScreen) 28.dp else 24.dp)
                     ) {
                         Box(contentAlignment = Alignment.Center) {
                             Icon(
                                 imageVector = Icons.Default.Storefront,
                                 contentDescription = null,
                                 tint = Color.White,
-                                modifier = Modifier.size(if (isWideScreen) 15.dp else 13.dp)
+                                modifier = Modifier.size(if (isWideScreen) 16.dp else 14.dp)
                             )
                         }
                     }
@@ -547,7 +572,7 @@ private fun CompactTopAppBar(
                                 style = MaterialTheme.typography.titleSmall,
                                 fontWeight = FontWeight.Bold,
                                 color = Color.White,
-                                fontSize = 13.sp,
+                                fontSize = 13.5.sp,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis
                             )
@@ -565,7 +590,7 @@ private fun CompactTopAppBar(
                             ) {
                                 Text(
                                     text = if (userRole == UserRole.ADMIN) "ADMIN" else "KASIR",
-                                    fontSize = 8.5.sp,
+                                    fontSize = 9.sp,
                                     fontWeight = FontWeight.ExtraBold,
                                     color = Color.White,
                                     modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.dp)
@@ -574,7 +599,7 @@ private fun CompactTopAppBar(
 
                             Text(
                                 text = "• $userFullName",
-                                fontSize = 11.sp,
+                                fontSize = 11.5.sp,
                                 color = Color.White.copy(alpha = 0.85f),
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis
@@ -589,13 +614,13 @@ private fun CompactTopAppBar(
                                 text = storeName.ifBlank { "Kasir Pintar" },
                                 fontWeight = FontWeight.Bold,
                                 color = Color.White,
-                                fontSize = 11.5.sp,
+                                fontSize = 12.sp,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis
                             )
                             Text(
                                 text = "$userFullName • ${if (userRole == UserRole.ADMIN) "Admin" else "Kasir"}",
-                                fontSize = 9.sp,
+                                fontSize = 9.5.sp,
                                 color = Color.White.copy(alpha = 0.85f),
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis
@@ -611,43 +636,45 @@ private fun CompactTopAppBar(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
-                    // 1. Web Laporan Shortcut Badge (Pure Realtime DB)
-                    Surface(
-                        shape = RoundedCornerShape(8.dp),
-                        color = Color.White.copy(alpha = 0.16f),
-                        border = BorderStroke(0.5.dp, Color.White.copy(alpha = 0.2f)),
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(8.dp))
-                            .clickable(onClick = onCloudReportClick)
-                            .testTag("topbar_cloud_report_button")
-                    ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier.padding(
-                                horizontal = if (isWideScreen) 8.dp else 6.dp,
-                                vertical = if (isWideScreen) 3.5.dp else 2.5.dp
-                            )
+                    // 1. Web Laporan Shortcut Badge (Pure Realtime DB) - Khusus Admin
+                    if (userRole == UserRole.ADMIN) {
+                        Surface(
+                            shape = RoundedCornerShape(8.dp),
+                            color = Color.White.copy(alpha = 0.16f),
+                            border = BorderStroke(0.5.dp, Color.White.copy(alpha = 0.2f)),
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(8.dp))
+                                .clickable(onClick = onCloudReportClick)
+                                .testTag("topbar_cloud_report_button")
                         ) {
-                            Box(
-                                modifier = Modifier
-                                    .size(5.5.dp)
-                                    .clip(CircleShape)
-                                    .background(Color(0xFF38BDF8))
-                            )
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Icon(
-                                imageVector = Icons.Default.Cloud,
-                                contentDescription = null,
-                                tint = Color.White,
-                                modifier = Modifier.size(if (isWideScreen) 13.dp else 11.dp)
-                            )
-                            Spacer(modifier = Modifier.width(3.dp))
-                            Text(
-                                text = if (isWideScreen) "Web Laporan" else "Web",
-                                fontSize = if (isWideScreen) 10.sp else 9.5.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = Color.White
-                            )
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier.padding(
+                                    horizontal = if (isWideScreen) 9.dp else 7.dp,
+                                    vertical = if (isWideScreen) 4.5.dp else 3.5.dp
+                                )
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(6.dp)
+                                        .clip(CircleShape)
+                                        .background(Color(0xFF38BDF8))
+                                )
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Icon(
+                                    imageVector = Icons.Default.Cloud,
+                                    contentDescription = null,
+                                    tint = Color.White,
+                                    modifier = Modifier.size(if (isWideScreen) 14.dp else 12.dp)
+                                )
+                                Spacer(modifier = Modifier.width(3.dp))
+                                Text(
+                                    text = if (isWideScreen) "Web Laporan" else "Web",
+                                    fontSize = if (isWideScreen) 10.5.sp else 10.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color.White
+                                )
+                            }
                         }
                     }
 
@@ -668,28 +695,28 @@ private fun CompactTopAppBar(
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
                             modifier = Modifier.padding(
-                                horizontal = if (isWideScreen) 8.dp else 5.dp,
-                                vertical = if (isWideScreen) 3.5.dp else 2.5.dp
+                                horizontal = if (isWideScreen) 9.dp else 6.dp,
+                                vertical = if (isWideScreen) 4.5.dp else 3.5.dp
                             )
                         ) {
                             Box(
                                 modifier = Modifier
-                                    .size(5.5.dp)
+                                    .size(6.dp)
                                     .clip(CircleShape)
                                     .background(if (connectedPrinter) Color(0xFF4ADE80) else Color(0xFFFCA5A5))
                             )
-                            Spacer(modifier = Modifier.width(3.5.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
                             Icon(
                                 imageVector = Icons.Default.Print,
                                 contentDescription = "Printer",
                                 tint = Color.White,
-                                modifier = Modifier.size(if (isWideScreen) 13.dp else 11.dp)
+                                modifier = Modifier.size(if (isWideScreen) 14.dp else 12.dp)
                             )
                             if (isWideScreen) {
                                 Spacer(modifier = Modifier.width(3.dp))
                                 Text(
                                     text = if (connectedPrinter) "Siap" else "Off",
-                                    fontSize = 10.sp,
+                                    fontSize = 10.5.sp,
                                     fontWeight = FontWeight.Medium,
                                     color = if (connectedPrinter) Color(0xFFDCFCE7) else Color(0xFFFEE2E2)
                                 )
@@ -710,14 +737,14 @@ private fun CompactTopAppBar(
                         ) {
                             Box(
                                 contentAlignment = Alignment.Center,
-                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.5.dp)
+                                modifier = Modifier.padding(horizontal = 7.dp, vertical = 3.5.dp)
                             ) {
                                 Row(verticalAlignment = Alignment.CenterVertically) {
                                     Icon(
                                         imageVector = Icons.Default.ExitToApp,
                                         contentDescription = "Keluar",
                                         tint = Color(0xFFFECACA),
-                                        modifier = Modifier.size(13.dp)
+                                        modifier = Modifier.size(14.dp)
                                     )
                                 }
                             }

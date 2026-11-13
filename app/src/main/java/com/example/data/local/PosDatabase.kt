@@ -25,9 +25,10 @@ import kotlinx.coroutines.launch
         StoreProfile::class,
         com.example.data.model.ShiftClosing::class,
         com.example.data.model.CloudHostingConfig::class,
-        com.example.data.model.DailyReport::class
+        com.example.data.model.DailyReport::class,
+        com.example.data.model.Expense::class
     ],
-    version = 6,
+    version = 7,
     exportSchema = false
 )
 abstract class PosDatabase : RoomDatabase() {
@@ -39,10 +40,27 @@ abstract class PosDatabase : RoomDatabase() {
     abstract fun shiftClosingDao(): ShiftClosingDao
     abstract fun cloudHostingConfigDao(): CloudHostingConfigDao
     abstract fun dailyReportDao(): DailyReportDao
+    abstract fun expenseDao(): ExpenseDao
 
     companion object {
         @Volatile
         private var INSTANCE: PosDatabase? = null
+
+        val MIGRATION_6_7 = object : androidx.room.migration.Migration(6, 7) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("""
+                    CREATE TABLE IF NOT EXISTS `expenses` (
+                        `id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                        `title` TEXT NOT NULL,
+                        `amount` REAL NOT NULL,
+                        `category` TEXT NOT NULL,
+                        `timestamp` INTEGER NOT NULL,
+                        `notes` TEXT NOT NULL,
+                        `createdBy` TEXT NOT NULL
+                    )
+                """.trimIndent())
+            }
+        }
 
         fun getDatabase(context: Context): PosDatabase {
             return INSTANCE ?: synchronized(this) {
@@ -51,6 +69,7 @@ abstract class PosDatabase : RoomDatabase() {
                     PosDatabase::class.java,
                     "pos_database"
                 )
+                    .addMigrations(MIGRATION_6_7)
                     .addCallback(DatabaseCallback())
                     .fallbackToDestructiveMigration()
                     .build()
@@ -73,8 +92,25 @@ abstract class PosDatabase : RoomDatabase() {
         override fun onOpen(db: SupportSQLiteDatabase) {
             super.onOpen(db)
             try {
+                // Ensure default store profile exists if table was ever empty
+                db.execSQL("""
+                    INSERT OR IGNORE INTO store_profile (id, storeName, address, phone, ownerPhone, receiptHeader, receiptFooter)
+                    VALUES (1, 'KASIR POS NUSANTARA', 'Jl. Merdeka No. 45, Jakarta Pusat', '0812-9876-5432', '081298765432', 'STRUK PEMBELIAN RESMI', 'Terima kasih atas kunjungan Anda!\nBarang yang sudah dibeli tidak dapat ditukar/dikembalikan.')
+                """.trimIndent())
                 // Ensure sembako products are removed if any remained from previous version
                 db.execSQL("DELETE FROM products WHERE LOWER(category) = 'sembako'")
+                // Ensure expenses table exists
+                db.execSQL("""
+                    CREATE TABLE IF NOT EXISTS `expenses` (
+                        `id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                        `title` TEXT NOT NULL,
+                        `amount` REAL NOT NULL,
+                        `category` TEXT NOT NULL,
+                        `timestamp` INTEGER NOT NULL,
+                        `notes` TEXT NOT NULL,
+                        `createdBy` TEXT NOT NULL
+                    )
+                """.trimIndent())
             } catch (t: Throwable) {
                 // Safe ignore
             }
@@ -269,6 +305,32 @@ abstract class PosDatabase : RoomDatabase() {
                     )
                 )
             )
+
+            // 6. Sample Expenses (Pengeluaran Operasional Toko)
+            try {
+                db.expenseDao().insertExpense(
+                    com.example.data.model.Expense(
+                        title = "Listrik & Internet Toko",
+                        amount = 150000.0,
+                        category = "Utilitas",
+                        timestamp = now - 7200000L,
+                        notes = "Tagihan bulanan operasional toko",
+                        createdBy = "Admin"
+                    )
+                )
+                db.expenseDao().insertExpense(
+                    com.example.data.model.Expense(
+                        title = "Plastik & Perlengkapan Kemasan",
+                        amount = 45000.0,
+                        category = "Bahan/Kemasan",
+                        timestamp = now - 3600000L,
+                        notes = "Kemasan take away & kantong belanja",
+                        createdBy = "Admin"
+                    )
+                )
+            } catch (t: Throwable) {
+                // Safe ignore
+            }
         }
     }
 }

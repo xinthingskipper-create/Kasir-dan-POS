@@ -25,6 +25,26 @@ class PosRepository(private val database: PosDatabase) {
     private val shiftClosingDao = database.shiftClosingDao()
     private val cloudHostingConfigDao = database.cloudHostingConfigDao()
     private val dailyReportDao = database.dailyReportDao()
+    private val expenseDao = database.expenseDao()
+
+    // --- Expenses (Pengeluaran Toko) ---
+    fun getExpensesBetween(startTime: Long, endTime: Long): Flow<List<com.example.data.model.Expense>> =
+        expenseDao.getExpensesBetween(startTime, endTime)
+
+    suspend fun getExpensesBetweenList(startTime: Long, endTime: Long): List<com.example.data.model.Expense> = withContext(Dispatchers.IO) {
+        expenseDao.getExpensesBetweenList(startTime, endTime)
+    }
+
+    fun getTotalExpensesBetween(startTime: Long, endTime: Long): Flow<Double?> =
+        expenseDao.getTotalExpensesBetween(startTime, endTime)
+
+    suspend fun insertExpense(expense: com.example.data.model.Expense): Long = withContext(Dispatchers.IO) {
+        expenseDao.insertExpense(expense)
+    }
+
+    suspend fun deleteExpense(expense: com.example.data.model.Expense) = withContext(Dispatchers.IO) {
+        expenseDao.deleteExpense(expense)
+    }
 
     // --- Users & Auth ---
     fun getAllActiveUsers(): Flow<List<User>> = userDao.getAllActiveUsers()
@@ -103,6 +123,10 @@ class PosRepository(private val database: PosDatabase) {
 
     // --- Products & Inventory ---
     fun getAllProducts(): Flow<List<Product>> = productDao.getAllProducts()
+
+    suspend fun getAllProductsList(): List<Product> = withContext(Dispatchers.IO) {
+        productDao.getAllProductsList()
+    }
 
     fun getAllCategories(): Flow<List<String>> = productDao.getAllCategories()
 
@@ -200,11 +224,11 @@ class PosRepository(private val database: PosDatabase) {
     fun getStoreProfile(): Flow<StoreProfile?> = storeProfileDao.getStoreProfile()
 
     suspend fun getStoreProfileSync(): StoreProfile = withContext(Dispatchers.IO) {
-        storeProfileDao.getStoreProfileSync() ?: StoreProfile()
+        storeProfileDao.getStoreProfileSync() ?: StoreProfile(id = 1)
     }
 
     suspend fun updateStoreProfile(storeProfile: StoreProfile) = withContext(Dispatchers.IO) {
-        storeProfileDao.updateStoreProfile(storeProfile)
+        storeProfileDao.updateStoreProfile(storeProfile.copy(id = 1))
     }
 
     // --- Shift Closings (Tutup Kasir) ---

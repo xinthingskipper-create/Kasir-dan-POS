@@ -294,6 +294,103 @@ class BluetoothPrinterManager(private val context: Context) {
         }
     }
 
+    suspend fun printOmsetReceipt(
+        profile: StoreProfile,
+        totalRevenue: Double,
+        periodLabel: String,
+        cashierName: String,
+        paperWidthCols: Int = 32
+    ): Boolean = withContext(Dispatchers.IO) {
+        val out = outputStream
+        if (out == null) {
+            _printStatus.value = "Printer belum terhubung"
+            return@withContext false
+        }
+        try {
+            val baos = ByteArrayOutputStream()
+            baos.write(byteArrayOf(0x1B, 0x40)) // ESC @
+            baos.write(byteArrayOf(0x1B, 0x61, 0x01)) // Center
+            baos.write(byteArrayOf(0x1B, 0x45, 0x01)) // Bold
+            baos.write("${profile.storeName}\n".toByteArray(Charsets.US_ASCII))
+            baos.write(byteArrayOf(0x1B, 0x45, 0x00))
+            baos.write("LAPORAN TOTAL OMSET\n".toByteArray(Charsets.US_ASCII))
+            baos.write("================================\n".toByteArray(Charsets.US_ASCII))
+            baos.write(byteArrayOf(0x1B, 0x61, 0x00)) // Left
+            baos.write(formatTwoColumns("Periode:", periodLabel, paperWidthCols).toByteArray(Charsets.US_ASCII))
+            val dateStr = java.text.SimpleDateFormat("dd/MM/yyyy HH:mm", java.util.Locale.getDefault()).format(java.util.Date())
+            baos.write(formatTwoColumns("Waktu Cetak:", dateStr, paperWidthCols).toByteArray(Charsets.US_ASCII))
+            baos.write(formatTwoColumns("Petugas:", cashierName, paperWidthCols).toByteArray(Charsets.US_ASCII))
+            baos.write("${"-".repeat(paperWidthCols)}\n".toByteArray(Charsets.US_ASCII))
+            baos.write(byteArrayOf(0x1B, 0x45, 0x01)) // Bold
+            baos.write(formatTwoColumns("TOTAL OMSET:", formatRupiah(totalRevenue), paperWidthCols).toByteArray(Charsets.US_ASCII))
+            baos.write(byteArrayOf(0x1B, 0x45, 0x00))
+            baos.write("================================\n".toByteArray(Charsets.US_ASCII))
+            baos.write(byteArrayOf(0x1B, 0x61, 0x01)) // Center
+            baos.write("Tersimpan di Cloud Hosting\n".toByteArray(Charsets.US_ASCII))
+            baos.write(byteArrayOf(0x1B, 0x64, 0x04)) // Feed 4 lines & cut
+            out.write(baos.toByteArray())
+            out.flush()
+            _printStatus.value = "Struk Total Omset berhasil dicetak!"
+            return@withContext true
+        } catch (e: Exception) {
+            _printStatus.value = "Gagal cetak omset: ${e.localizedMessage}"
+            return@withContext false
+        }
+    }
+
+    suspend fun printProfitExpenseReceipt(
+        profile: StoreProfile,
+        grossProfit: Double,
+        expenses: Double,
+        netProfit: Double,
+        grossSales: Double,
+        periodLabel: String,
+        cashierName: String,
+        paperWidthCols: Int = 32
+    ): Boolean = withContext(Dispatchers.IO) {
+        val out = outputStream
+        if (out == null) {
+            _printStatus.value = "Printer belum terhubung"
+            return@withContext false
+        }
+        try {
+            val baos = ByteArrayOutputStream()
+            baos.write(byteArrayOf(0x1B, 0x40)) // ESC @
+            baos.write(byteArrayOf(0x1B, 0x61, 0x01)) // Center
+            baos.write(byteArrayOf(0x1B, 0x45, 0x01)) // Bold
+            baos.write("${profile.storeName}\n".toByteArray(Charsets.US_ASCII))
+            baos.write(byteArrayOf(0x1B, 0x45, 0x00))
+            baos.write("LAPORAN KEUANGAN TOKO\n".toByteArray(Charsets.US_ASCII))
+            baos.write("================================\n".toByteArray(Charsets.US_ASCII))
+            baos.write(byteArrayOf(0x1B, 0x61, 0x00)) // Left
+            baos.write(formatTwoColumns("Periode:", periodLabel, paperWidthCols).toByteArray(Charsets.US_ASCII))
+            val dateStr = java.text.SimpleDateFormat("dd/MM/yyyy HH:mm", java.util.Locale.getDefault()).format(java.util.Date())
+            baos.write(formatTwoColumns("Waktu Cetak:", dateStr, paperWidthCols).toByteArray(Charsets.US_ASCII))
+            baos.write(formatTwoColumns("Petugas:", cashierName, paperWidthCols).toByteArray(Charsets.US_ASCII))
+            baos.write("${"-".repeat(paperWidthCols)}\n".toByteArray(Charsets.US_ASCII))
+            baos.write(formatTwoColumns("Penjualan Kotor:", formatRupiah(grossSales), paperWidthCols).toByteArray(Charsets.US_ASCII))
+            baos.write(byteArrayOf(0x1B, 0x45, 0x01)) // Bold
+            baos.write(formatTwoColumns("LABA KOTOR:", formatRupiah(grossProfit), paperWidthCols).toByteArray(Charsets.US_ASCII))
+            baos.write(byteArrayOf(0x1B, 0x45, 0x00))
+            baos.write(formatTwoColumns("PENGELUARAN:", formatRupiah(expenses), paperWidthCols).toByteArray(Charsets.US_ASCII))
+            baos.write("${"-".repeat(paperWidthCols)}\n".toByteArray(Charsets.US_ASCII))
+            baos.write(byteArrayOf(0x1B, 0x45, 0x01)) // Bold
+            baos.write(formatTwoColumns("LABA BERSIH:", formatRupiah(netProfit), paperWidthCols).toByteArray(Charsets.US_ASCII))
+            baos.write(byteArrayOf(0x1B, 0x45, 0x00))
+            baos.write("================================\n".toByteArray(Charsets.US_ASCII))
+            baos.write(byteArrayOf(0x1B, 0x61, 0x01)) // Center
+            baos.write("Arsip Tersimpan di Cloud Hosting\n".toByteArray(Charsets.US_ASCII))
+            baos.write(byteArrayOf(0x1B, 0x64, 0x04)) // Feed 4 lines & cut
+            out.write(baos.toByteArray())
+            out.flush()
+            _printStatus.value = "Struk Laporan Keuangan berhasil dicetak!"
+            return@withContext true
+        } catch (e: Exception) {
+            _printStatus.value = "Gagal cetak struk: ${e.localizedMessage}"
+            return@withContext false
+        }
+    }
+
     suspend fun printTestPage(profile: StoreProfile, paperWidthCols: Int = 32): Boolean = withContext(Dispatchers.IO) {
         val out = outputStream
         if (out == null) {

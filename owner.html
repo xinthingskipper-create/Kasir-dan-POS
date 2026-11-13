@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Portal Realtime Database Laporan Tutup Kasir - Kasir POS</title>
+  <title>Portal Realtime Database Laporan Tutup Kasir & Rekap Harian - Kasir POS</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -41,7 +41,7 @@
             <h1 class="text-base sm:text-lg font-extrabold text-white tracking-tight">Portal Laporan Realtime Database</h1>
             <span class="text-[10px] font-bold uppercase tracking-wider bg-orange-500/10 text-orange-400 border border-orange-500/30 px-2 py-0.5 rounded-full">RTDB Live</span>
           </div>
-          <p class="text-xs text-slate-400">Pemantauan Laporan Tutup Kasir & Omset Online dari Mana Saja</p>
+          <p class="text-xs text-slate-400">Pemantauan Laporan Tutup Kasir & Omset Online &bull; Arsip Harian Tersimpan Otomatis</p>
         </div>
       </div>
 
@@ -117,13 +117,7 @@
             <div class="text-[10px] font-bold text-slate-400 uppercase">Kas Fisik Laci</div>
             <div id="latest-shift-cash" class="text-lg font-black text-amber-400 font-mono mt-0.5">Rp 0</div>
           </div>
-          <!-- Status Selisih -->
-          <div class="bg-slate-950/80 border border-slate-800 p-3 rounded-xl min-w-[130px]">
-            <div class="text-[10px] font-bold text-slate-400 uppercase">Status Kas</div>
-            <div id="latest-shift-diff-badge" class="mt-1">
-              <span class="text-xs font-bold text-slate-500">Menunggu</span>
-            </div>
-          </div>
+
           <!-- Action Button -->
           <button id="btn-view-latest-receipt" class="px-4 py-3 bg-orange-600 hover:bg-orange-500 text-white rounded-xl text-xs font-bold transition flex items-center gap-2 shadow-lg shadow-orange-600/30 cursor-pointer">
             <span>📋 Struk Detail</span>
@@ -132,27 +126,80 @@
       </div>
     </div>
 
-    <!-- 2. Daily KPI Metric Cards -->
-    <div class="grid grid-cols-2 md:grid-cols-5 gap-3.5">
-      <!-- Total Omset -->
-      <div class="bg-slate-900 border border-slate-800 p-4 rounded-2xl">
-        <span class="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Total Omset</span>
-        <div id="stat-total-revenue" class="text-xl font-black text-emerald-400 mt-1 font-mono">Rp 0</div>
-        <span class="text-[10px] text-slate-500">Semua transaksi hari ini</span>
+    <!-- 2. DATE FILTER & AUTO-RESET CONTROL TOOLBAR -->
+    <div class="bg-slate-900 border border-slate-800 p-4 rounded-2xl flex flex-wrap items-center justify-between gap-3 shadow-md">
+      <div class="flex items-center gap-2 flex-wrap">
+        <span class="text-xs font-bold text-slate-300 flex items-center gap-1.5">
+          <span>📅</span> Filter Periode:
+        </span>
+        <button id="btn-period-today" class="period-btn px-3 py-1.5 text-xs font-bold rounded-xl bg-orange-600 text-white shadow-xs cursor-pointer flex items-center gap-1.5">
+          <span class="w-2 h-2 rounded-full bg-emerald-400 pulse-live"></span>
+          <span>Hari Ini (Live)</span>
+        </button>
+        <button id="btn-period-yesterday" class="period-btn px-3 py-1.5 text-xs font-semibold rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 cursor-pointer">
+          Kemarin
+        </button>
+        <button id="btn-period-7days" class="period-btn px-3 py-1.5 text-xs font-semibold rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 cursor-pointer">
+          7 Hari Terakhir
+        </button>
+        <button id="btn-period-month" class="period-btn px-3 py-1.5 text-xs font-semibold rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 cursor-pointer">
+          Bulan Ini
+        </button>
+        <button id="btn-period-all" class="period-btn px-3 py-1.5 text-xs font-semibold rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 cursor-pointer">
+          Semua Tanggal
+        </button>
       </div>
 
-      <!-- Kas Tunai -->
-      <div class="bg-slate-900 border border-slate-800 p-4 rounded-2xl">
-        <span class="text-[11px] font-bold text-amber-400/90 uppercase tracking-wider">Total Kas Laci</span>
+      <!-- Specific Date Picker & Reset -->
+      <div class="flex items-center gap-2 flex-wrap">
+        <div class="flex items-center gap-1.5 bg-slate-950 border border-slate-700 rounded-xl px-2.5 py-1">
+          <label for="input-custom-date" class="text-[11px] text-slate-400">Pilih Tanggal:</label>
+          <input type="date" id="input-custom-date" class="bg-transparent border-none text-xs font-mono text-white focus:outline-hidden cursor-pointer">
+        </div>
+        <button id="btn-reset-date" title="Kembali ke Hari Ini (Reset ke Nol saat tanggal ganti)" class="px-2.5 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white rounded-xl text-xs font-bold transition flex items-center gap-1 cursor-pointer">
+          <span>🔄</span>
+          <span>Hari Ini</span>
+        </button>
+      </div>
+    </div>
+
+    <!-- Active Filter Status Indicator Banner -->
+    <div id="filter-status-banner" class="bg-slate-900/60 border border-slate-800/80 px-4 py-2.5 rounded-xl flex items-center justify-between text-xs">
+      <div class="flex items-center gap-2">
+        <span class="w-2 h-2 rounded-full bg-emerald-400 pulse-live"></span>
+        <span id="lbl-active-period-desc" class="text-slate-300 font-medium">Laporan Hari Ini (Live) &bull; Saat pergantian tanggal, laporan otomatis kembali ke nol (Rp 0)</span>
+      </div>
+      <span id="lbl-active-date-display" class="font-mono text-orange-400 font-bold">-</span>
+    </div>
+
+    <!-- 3. Daily KPI Metric Cards -->
+    <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
+      <!-- Pendapatan Kotor (Gross Revenue) -->
+      <div class="bg-slate-900 border border-emerald-500/30 p-4 rounded-2xl">
+        <span class="text-[11px] font-bold text-emerald-400 uppercase tracking-wider">Pendapatan Kotor</span>
+        <div id="stat-total-revenue" class="text-xl font-black text-emerald-400 mt-1 font-mono">Rp 0</div>
+        <span id="sub-total-revenue" class="text-[10px] text-slate-500">Mulai Rp 0 di hari baru</span>
+      </div>
+
+      <!-- Pengeluaran -->
+      <div class="bg-slate-900 border border-rose-500/30 p-4 rounded-2xl">
+        <span class="text-[11px] font-bold text-rose-400 uppercase tracking-wider">Pengeluaran</span>
+        <div id="stat-total-expenses" class="text-xl font-black text-rose-400 mt-1 font-mono">Rp 0</div>
+        <span id="sub-total-expenses" class="text-[10px] text-slate-500">0 catatan pengeluaran</span>
+      </div>
+
+      <!-- Kas Fisik di Laci -->
+      <div class="bg-slate-900 border border-amber-500/30 p-4 rounded-2xl">
+        <span class="text-[11px] font-bold text-amber-400/90 uppercase tracking-wider">Kas Fisik di Laci</span>
         <div id="stat-total-cash" class="text-xl font-black text-amber-400 mt-1 font-mono">Rp 0</div>
         <span class="text-[10px] text-slate-500">Uang tunai kasir</span>
       </div>
 
       <!-- Non-Tunai / QRIS -->
-      <div class="bg-slate-900 border border-slate-800 p-4 rounded-2xl">
-        <span class="text-[11px] font-bold text-purple-400/90 uppercase tracking-wider">QRIS & Transfer</span>
+      <div class="bg-slate-900 border border-purple-500/30 p-4 rounded-2xl">
+        <span class="text-[11px] font-bold text-purple-400/90 uppercase tracking-wider">Non-Tunai</span>
         <div id="stat-total-noncash" class="text-xl font-black text-purple-400 mt-1 font-mono">Rp 0</div>
-        <span class="text-[10px] text-slate-500">Pembayaran digital</span>
+        <span class="text-[10px] text-slate-500">QRIS, Transfer & EDC</span>
       </div>
 
       <!-- Total Transaksi -->
@@ -163,21 +210,31 @@
       </div>
 
       <!-- Shift Ditutup -->
-      <div class="bg-slate-900 border border-slate-800 p-4 rounded-2xl col-span-2 md:col-span-1">
+      <div class="bg-slate-900 border border-slate-800 p-4 rounded-2xl">
         <span class="text-[11px] font-bold text-orange-400/90 uppercase tracking-wider">Shift Selesai</span>
         <div id="stat-total-shifts" class="text-xl font-black text-orange-400 mt-1 font-mono">0 Shift</div>
-        <span class="text-[10px] text-slate-500">Laporan tutup kasir</span>
+        <span class="text-[10px] text-slate-500">Tutup toko</span>
       </div>
     </div>
 
-    <!-- 3. Tab Filter Buttons -->
+    <!-- 4. Tab Navigation Buttons -->
     <div class="flex items-center justify-between border-b border-slate-800 pb-2">
-      <div class="flex items-center gap-2">
+      <div class="flex items-center gap-2 flex-wrap">
         <button id="btn-tab-shifts" class="px-3.5 py-1.5 text-xs font-bold rounded-xl bg-orange-600 text-white shadow-xs cursor-pointer">
           📋 Laporan Tutup Kasir (Shift)
         </button>
+        <button id="btn-tab-expenses" class="px-3.5 py-1.5 text-xs font-semibold rounded-xl bg-slate-900 hover:bg-slate-800 text-slate-400 hover:text-white border border-slate-800 transition cursor-pointer flex items-center gap-1.5">
+          <span>💸</span>
+          <span>Pengeluaran &amp; Catatan</span>
+          <span id="expenses-tab-count-badge" class="bg-rose-950 text-rose-300 px-1.5 py-0.2 rounded-md text-[10px] font-mono">0</span>
+        </button>
         <button id="btn-tab-trx" class="px-3.5 py-1.5 text-xs font-semibold rounded-xl bg-slate-900 hover:bg-slate-800 text-slate-400 hover:text-white border border-slate-800 transition cursor-pointer">
           🧾 Transaksi Penjualan Live
+        </button>
+        <button id="btn-tab-daily" class="px-3.5 py-1.5 text-xs font-semibold rounded-xl bg-slate-900 hover:bg-slate-800 text-slate-400 hover:text-white border border-slate-800 transition cursor-pointer flex items-center gap-1.5">
+          <span>🗄️</span>
+          <span>Arsip Laporan (Tutup Toko)</span>
+          <span id="daily-tab-count-badge" class="bg-slate-800 text-orange-400 px-1.5 py-0.2 rounded-md text-[10px] font-mono">0</span>
         </button>
       </div>
 
@@ -188,7 +245,7 @@
       </div>
     </div>
 
-    <!-- 4. Section: Shift Reports Table (Primary Focus) -->
+    <!-- 5. Section: Shift Reports Table (Primary Focus) -->
     <div id="view-shifts-section" class="bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden shadow-lg">
       <div class="p-4 border-b border-slate-800 flex flex-wrap items-center justify-between gap-3 bg-slate-900/60">
         <div>
@@ -212,7 +269,6 @@
               <th class="py-3 px-4 text-right">Total Omset</th>
               <th class="py-3 px-4 text-right">Kas Sistem</th>
               <th class="py-3 px-4 text-right">Fisik Laci</th>
-              <th class="py-3 px-4 text-center">Selisih Kas</th>
               <th class="py-3 px-4 text-right">Non-Tunai</th>
               <th class="py-3 px-4">Catatan</th>
               <th class="py-3 px-4 text-center no-print">Audit & Struk</th>
@@ -220,7 +276,7 @@
           </thead>
           <tbody id="rtdb-shifts-body" class="divide-y divide-slate-800/60">
             <tr>
-              <td colspan="10" class="py-12 text-center text-slate-500">
+              <td colspan="9" class="py-12 text-center text-slate-500">
                 <div class="flex flex-col items-center justify-center">
                   <span class="text-3xl mb-2">📋</span>
                   <p class="font-medium text-slate-300">Menghubungkan ke Firebase Realtime Database...</p>
@@ -233,7 +289,7 @@
       </div>
     </div>
 
-    <!-- 5. Section: Live Transactions Table (Stream /transactions) -->
+    <!-- 6. Section: Live Transactions Table (Stream /transactions) -->
     <div id="view-trx-section" class="bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden shadow-lg hidden">
       <div class="p-4 border-b border-slate-800 flex flex-wrap items-center justify-between gap-3 bg-slate-900/60">
         <div>
@@ -288,6 +344,118 @@
       </div>
     </div>
 
+    <!-- 6B. Section: Pengeluaran & Catatan Pengeluaran -->
+    <div id="view-expenses-section" class="bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden shadow-lg hidden">
+      <div class="p-4 border-b border-slate-800 flex flex-wrap items-center justify-between gap-3 bg-slate-900/60">
+        <div>
+          <h3 class="text-sm font-bold text-white flex items-center gap-2">
+            <span>💸</span> Pengeluaran &amp; Catatan Pengeluaran Toko (Node: /expenses)
+          </h3>
+          <p class="text-xs text-slate-400">Rincian biaya operasional, belanja bahan, dan catatan keterangan pengeluaran harian</p>
+        </div>
+        <div class="flex items-center gap-2">
+          <span id="expenses-total-pill" class="px-3 py-1 rounded-full bg-rose-950/60 text-rose-300 border border-rose-500/30 text-xs font-mono font-bold">Total: Rp 0</span>
+        </div>
+      </div>
+
+      <div class="p-3 bg-slate-950/70 border-b border-slate-800 flex flex-wrap items-center justify-between gap-3">
+        <div class="relative flex-1 min-w-[220px] max-w-md">
+          <input type="text" id="input-search-expenses" placeholder="Cari judul, kategori, catatan pengeluaran, petugas..." class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3.5 py-2 text-xs text-white placeholder-slate-500 focus:outline-hidden focus:border-rose-500">
+          <span class="absolute right-3 top-2.5 text-xs text-slate-500">🔍</span>
+        </div>
+        <span class="text-[11px] text-slate-400">Otomatis reset Rp 0 saat pergantian tanggal</span>
+      </div>
+
+      <div class="overflow-x-auto">
+        <table class="w-full text-left text-xs text-slate-300 border-collapse">
+          <thead>
+            <tr class="bg-slate-950/80 border-b border-slate-800 text-slate-400 font-bold uppercase text-[10px] tracking-wider">
+              <th class="py-3 px-4">Waktu &amp; Tanggal</th>
+              <th class="py-3 px-4">Judul Pengeluaran</th>
+              <th class="py-3 px-4">Kategori</th>
+              <th class="py-3 px-4">Catatan Pengeluaran</th>
+              <th class="py-3 px-4">Petugas</th>
+              <th class="py-3 px-4 text-right">Nominal</th>
+            </tr>
+          </thead>
+          <tbody id="rtdb-expenses-body" class="divide-y divide-slate-800/60">
+            <tr>
+              <td colspan="6" class="py-12 text-center text-slate-500">
+                Belum ada catatan pengeluaran pada periode ini.
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- 7. Section: Penyimpanan Database & Arsip Laporan Hosting (Dikirim Hanya Saat Tutup Toko) -->
+    <div id="view-daily-section" class="bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden shadow-lg hidden">
+      <!-- Database Hosting Status Banner -->
+      <div class="p-4 sm:p-5 border-b border-slate-800 bg-gradient-to-r from-slate-950 via-slate-900 to-slate-900 flex flex-col md:flex-row md:items-center justify-between gap-4">
+        <div class="space-y-1">
+          <div class="flex items-center gap-2">
+            <span class="inline-flex items-center gap-1.5 bg-blue-500/20 text-blue-400 border border-blue-500/40 text-[11px] font-bold px-2.5 py-0.5 rounded-full uppercase tracking-wider">
+              <span class="w-2 h-2 rounded-full bg-blue-400 animate-pulse"></span>
+              Arsip Laporan Database (Tutup Toko)
+            </span>
+            <span id="hosting-db-badge" class="text-xs text-emerald-400 font-mono font-bold">🟢 Dikirim Saat Tutup Toko</span>
+          </div>
+          <h3 class="text-base font-bold text-white flex items-center gap-2 pt-1">
+            <span>🗄️</span> Arsip Laporan Keuangan di Cloud Hosting
+          </h3>
+          <p class="text-xs text-slate-400">Arsip laporan hanya dikirim &amp; disimpan ke database saat kasir menekan tombol <strong>Tutup Toko</strong>.</p>
+        </div>
+
+        <div class="flex flex-wrap items-center gap-2">
+          <button id="btn-export-daily-csv" class="px-3 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 rounded-xl text-xs font-semibold transition flex items-center gap-1.5 cursor-pointer">
+            <span>📊</span> Ekspor CSV
+          </button>
+          <button id="btn-export-daily-json" class="px-3 py-2 bg-blue-600/20 hover:bg-blue-600/30 text-blue-300 border border-blue-500/30 rounded-xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer">
+            <span>💾</span> Unduh Cadangan JSON
+          </button>
+          <span id="daily-badge" class="px-3 py-1.5 rounded-xl bg-slate-800 text-orange-400 border border-slate-700 text-xs font-mono font-bold">0 Arsip Tersimpan</span>
+        </div>
+      </div>
+
+      <!-- Quick Search Toolbar for Archives -->
+      <div class="p-3 bg-slate-950/70 border-b border-slate-800 flex flex-wrap items-center justify-between gap-3 text-xs">
+        <div class="flex items-center gap-2 w-full sm:w-auto">
+          <span class="text-slate-400">🔍 Cari Tanggal / Kasir / Catatan:</span>
+          <input type="text" id="search-daily-reports" placeholder="Ketik YYYY-MM-DD atau nama kasir..." class="bg-slate-900 border border-slate-700 rounded-lg px-3 py-1 text-slate-200 text-xs focus:outline-none focus:border-orange-500 min-w-[220px]">
+        </div>
+        <div class="text-[11px] text-slate-400 flex items-center gap-3">
+          <span>Node RTDB: <code class="text-emerald-400 font-mono">/daily_reports</code></span>
+          <span>•</span>
+          <span>Pemicu Kirim: <span class="text-amber-400 font-bold">Hanya Saat Tekan Tutup Toko</span></span>
+        </div>
+      </div>
+
+      <div class="overflow-x-auto">
+        <table class="w-full text-left text-xs text-slate-300 border-collapse">
+          <thead>
+            <tr class="bg-slate-950/80 border-b border-slate-800 text-slate-400 font-bold uppercase text-[10px] tracking-wider">
+              <th class="py-3 px-4">Tanggal Laporan</th>
+              <th class="py-3 px-4 text-center">Struk / Shift</th>
+              <th class="py-3 px-4 text-right">Pendapatan Kotor</th>
+              <th class="py-3 px-4 text-right">Pengeluaran &amp; Catatan</th>
+              <th class="py-3 px-4 text-right">Kas Fisik di Laci</th>
+              <th class="py-3 px-4 text-right">Non-Tunai</th>
+              <th class="py-3 px-4">Kasir Bertugas</th>
+              <th class="py-3 px-4 text-center no-print">Tindakan</th>
+            </tr>
+          </thead>
+          <tbody id="rtdb-daily-body" class="divide-y divide-slate-800/60">
+            <tr>
+              <td colspan="8" class="py-12 text-center text-slate-500">
+                Belum ada arsip laporan terkirim. Tekan Tutup Toko di aplikasi kasir untuk mengirim arsip ke database.
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
   </main>
 
   <!-- Modal: Rincian Struk Tutup Kasir Digital -->
@@ -305,159 +473,113 @@
         <h4 id="modal-store-title" class="font-black text-white text-base uppercase">Foodrock POS</h4>
         <p id="modal-shift-name" class="font-mono text-xs font-bold text-orange-400">SHIFT-01</p>
         <p id="modal-shift-date" class="text-[11px] text-slate-400">-</p>
+        <p class="text-[11px] text-slate-400">Kasir: <span id="modal-cashier-name" class="font-semibold text-slate-200">Siti</span></p>
       </div>
 
-      <div class="border-y border-dashed border-slate-800 py-3 space-y-1.5 text-xs">
-        <div class="flex justify-between">
-          <span class="text-slate-400">Staf Kasir:</span>
-          <span id="modal-cashier-name" class="font-bold text-white">-</span>
-        </div>
+      <div class="border-t border-b border-dashed border-slate-700 py-3 space-y-2 text-xs">
         <div class="flex justify-between">
           <span class="text-slate-400">Total Transaksi:</span>
-          <span id="modal-trx-count" class="font-mono font-semibold text-white">0 Struk</span>
+          <span id="modal-trx-count" class="font-mono font-bold text-white">0 Struk</span>
+        </div>
+        <div class="flex justify-between font-bold">
+          <span class="text-slate-300">Total Omset:</span>
+          <span id="modal-total-rev" class="font-mono text-emerald-400">Rp 0</span>
+        </div>
+        <div class="flex justify-between text-slate-400">
+          <span>Kas Tunai:</span>
+          <span id="modal-cash-rev" class="font-mono text-slate-300">Rp 0</span>
+        </div>
+        <div class="flex justify-between text-slate-400">
+          <span>Non-Tunai (QRIS/Bank):</span>
+          <span id="modal-noncash-rev" class="font-mono text-purple-400">Rp 0</span>
         </div>
       </div>
 
-      <!-- Financials -->
-      <div class="space-y-1.5 text-xs">
-        <div class="flex justify-between font-bold text-sm">
-          <span class="text-white">Total Omset:</span>
-          <span id="modal-total-rev" class="text-emerald-400 font-mono font-black">Rp 0</span>
-        </div>
-        <div class="flex justify-between text-slate-400">
-          <span>• Tunai Kasir:</span>
-          <span id="modal-cash-rev" class="font-mono text-slate-200">Rp 0</span>
-        </div>
-        <div class="flex justify-between text-slate-400">
-          <span>• QRIS & Non-Tunai:</span>
-          <span id="modal-noncash-rev" class="font-mono text-slate-200">Rp 0</span>
-        </div>
-      </div>
-
-      <!-- Cash Drawer Audit -->
-      <div class="bg-slate-950 p-3 rounded-xl border border-slate-800 space-y-1.5 text-xs">
-        <div class="text-[10px] font-bold uppercase text-slate-500 tracking-wider">Audit Kas Laci:</div>
+      <div class="bg-slate-950/70 p-3 rounded-xl border border-slate-800 space-y-1.5 text-xs">
         <div class="flex justify-between">
           <span class="text-slate-400">Kas Sistem (Expected):</span>
-          <span id="modal-expected-cash" class="font-mono text-slate-200">Rp 0</span>
+          <span id="modal-expected-cash" class="font-mono text-slate-300">Rp 0</span>
         </div>
-        <div class="flex justify-between">
-          <span class="text-slate-400">Uang Fisik Dihitung:</span>
-          <span id="modal-actual-cash" class="font-mono font-bold text-amber-400">Rp 0</span>
+        <div class="flex justify-between font-bold">
+          <span class="text-slate-300">Kas Fisik Laci:</span>
+          <span id="modal-actual-cash" class="font-mono text-amber-400">Rp 0</span>
         </div>
-        <div class="flex justify-between pt-1 border-t border-slate-800/80 font-bold">
-          <span class="text-slate-300">Status Selisih:</span>
-          <span id="modal-diff-status">-</span>
+        <div class="border-t border-slate-800 pt-1.5 flex justify-between font-bold" id="modal-diff-row">
+          <span class="text-slate-300">Status Selisih Kas:</span>
+          <span id="modal-diff-val" class="font-mono text-emerald-400">✓ Pas (Rp 0)</span>
         </div>
       </div>
 
-      <div class="text-xs">
-        <span class="text-slate-400">Catatan Kasir:</span>
-        <p id="modal-shift-notes" class="text-slate-300 italic bg-slate-950 p-2.5 rounded-lg mt-1 border border-slate-800">-</p>
+      <div class="text-[11px] text-slate-400 italic bg-slate-950/40 p-2.5 rounded-lg border border-slate-800/60">
+        <p id="modal-shift-notes">-</p>
       </div>
 
-      <!-- Actions -->
-      <div class="pt-2 border-t border-slate-800 flex flex-col gap-2 no-print">
-        <div class="flex gap-2">
-          <button id="btn-wa-share" class="flex-1 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold transition flex items-center justify-center gap-1.5 cursor-pointer">
-            <span>💬 Kirim WA</span>
-          </button>
-          <button onclick="window.print()" class="flex-1 py-2 bg-slate-800 hover:bg-slate-700 text-white rounded-xl text-xs font-bold transition flex items-center justify-center gap-1.5 cursor-pointer">
-            <span>🖨️ Cetak</span>
-          </button>
-        </div>
+      <div class="flex gap-2 pt-2 no-print">
+        <button onclick="window.print()" class="flex-1 py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-xl text-xs font-bold transition flex items-center justify-center gap-1.5 cursor-pointer">
+          <span>🖨️</span> Cetak / Simpan PDF
+        </button>
+        <button id="btn-wa-share" class="px-3.5 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold transition flex items-center justify-center gap-1 cursor-pointer" title="Kirim ke WhatsApp">
+          <span>💬</span> WA
+        </button>
+      </div>
+
+      <div class="no-print pt-1">
         <button id="btn-modal-done" class="w-full py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl text-xs font-semibold transition cursor-pointer">
-          Tutup
+          Selesai
         </button>
       </div>
     </div>
   </div>
 
-  <!-- Modal: Rincian Struk Transaksi Digital (Itemized Receipt) -->
-  <div id="modal-trx-detail" class="fixed inset-0 bg-black/70 backdrop-blur-xs z-50 hidden flex items-center justify-center p-4">
-    <div class="bg-slate-900 border border-slate-800 rounded-2xl max-w-sm w-full p-6 shadow-2xl space-y-4 print-card max-h-[90vh] overflow-y-auto">
+  <!-- Modal: Rincian Nota Penjualan Live -->
+  <div id="modal-trx" class="fixed inset-0 bg-black/70 backdrop-blur-xs z-50 hidden flex items-center justify-center p-4">
+    <div class="bg-slate-900 border border-slate-800 rounded-2xl max-w-sm w-full p-6 shadow-2xl space-y-4 print-card">
       <div class="flex items-center justify-between border-b border-slate-800 pb-2 no-print">
-        <span class="text-xs font-bold text-orange-400 flex items-center gap-1.5">
-          <span>🧾</span> Struk Transaksi Realtime Online
+        <span class="text-xs font-bold text-sky-400 flex items-center gap-1.5">
+          <span>🧾</span> Struk Pembelian Konsumen
         </span>
         <button id="btn-close-trx-modal" class="text-slate-400 hover:text-white text-xl font-bold cursor-pointer">&times;</button>
       </div>
 
-      <!-- Receipt Header -->
       <div class="text-center space-y-1">
-        <h4 id="trx-store-name" class="font-black text-white text-base uppercase">FOODROCK POS</h4>
-        <p id="trx-invoice-no" class="font-mono text-xs font-bold text-orange-400">INV-0000</p>
-        <p id="trx-date-time" class="text-[11px] text-slate-400">-</p>
+        <h4 class="font-black text-white text-base uppercase">Foodrock POS</h4>
+        <p id="modal-trx-invoice" class="font-mono text-xs font-bold text-sky-400">TRX-001</p>
+        <p id="modal-trx-date" class="text-[11px] text-slate-400">-</p>
+        <p class="text-[11px] text-slate-400">Kasir: <span id="modal-trx-cashier" class="font-semibold text-slate-200">-</span></p>
       </div>
 
-      <!-- Meta Info -->
-      <div class="border-y border-dashed border-slate-800 py-2.5 space-y-1 text-xs">
-        <div class="flex justify-between">
-          <span class="text-slate-400">Kasir:</span>
-          <span id="trx-cashier" class="font-bold text-white">-</span>
-        </div>
+      <div class="border-t border-b border-dashed border-slate-700 py-3 space-y-2 text-xs">
         <div class="flex justify-between">
           <span class="text-slate-400">Pelanggan:</span>
-          <span id="trx-customer" class="font-semibold text-white">-</span>
+          <span id="modal-trx-customer" class="font-medium text-white">-</span>
         </div>
         <div class="flex justify-between">
           <span class="text-slate-400">Tipe / Meja:</span>
-          <span id="trx-type-table" class="font-semibold text-white">-</span>
+          <span id="modal-trx-type" class="font-medium text-slate-300">-</span>
+        </div>
+        <div class="flex justify-between">
+          <span class="text-slate-400">Metode Bayar:</span>
+          <span id="modal-trx-method" class="font-semibold text-amber-400">-</span>
         </div>
       </div>
 
       <!-- Items List -->
-      <div class="space-y-2">
-        <div class="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Rincian Menu:</div>
-        <div id="trx-items-container" class="space-y-1.5 text-xs max-h-48 overflow-y-auto pr-1">
-          <!-- Item rows inserted via JS -->
-        </div>
+      <div class="space-y-1.5 text-xs max-h-40 overflow-y-auto pr-1" id="modal-trx-items-list">
+        <!-- Injected dynamically -->
       </div>
 
-      <!-- Totals & Payment Summary -->
-      <div class="border-t border-dashed border-slate-800 pt-2.5 space-y-1.5 text-xs">
-        <div class="flex justify-between text-slate-400">
-          <span>Subtotal:</span>
-          <span id="trx-subtotal" class="font-mono text-slate-200">Rp 0</span>
-        </div>
-        <div id="trx-discount-row" class="flex justify-between text-rose-400 hidden">
-          <span>Diskon:</span>
-          <span id="trx-discount" class="font-mono">-Rp 0</span>
-        </div>
-        <div id="trx-tax-row" class="flex justify-between text-slate-400 hidden">
-          <span>Pajak:</span>
-          <span id="trx-tax" class="font-mono">Rp 0</span>
-        </div>
-        <div class="flex justify-between text-sm font-black border-t border-slate-800 pt-1 text-white">
-          <span>Total Akhir:</span>
-          <span id="trx-grandtotal" class="text-emerald-400 font-mono">Rp 0</span>
-        </div>
-        <div class="flex justify-between text-slate-400">
-          <span>Metode Bayar:</span>
-          <span id="trx-pay-method" class="font-bold text-orange-400">TUNAI</span>
-        </div>
-        <div id="trx-cash-details" class="space-y-1">
-          <div class="flex justify-between text-slate-400">
-            <span>Uang Diterima:</span>
-            <span id="trx-amount-paid" class="font-mono text-slate-200">Rp 0</span>
-          </div>
-          <div class="flex justify-between text-slate-400">
-            <span>Kembalian:</span>
-            <span id="trx-change-amount" class="font-mono text-slate-200">Rp 0</span>
-          </div>
-        </div>
+      <div class="border-t border-slate-800 pt-2 flex justify-between font-bold text-sm">
+        <span class="text-slate-300">Total Tagihan:</span>
+        <span id="modal-trx-grandtotal" class="font-mono text-emerald-400">Rp 0</span>
       </div>
 
-      <!-- Actions -->
-      <div class="pt-2 border-t border-slate-800 flex flex-col gap-2 no-print">
-        <div class="flex gap-2">
-          <button id="btn-trx-wa-share" class="flex-1 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold transition flex items-center justify-center gap-1.5 cursor-pointer">
-            <span>💬 Kirim WA</span>
-          </button>
-          <button onclick="window.print()" class="flex-1 py-2 bg-slate-800 hover:bg-slate-700 text-white rounded-xl text-xs font-bold transition flex items-center justify-center gap-1.5 cursor-pointer">
-            <span>🖨️ Cetak</span>
-          </button>
-        </div>
+      <div class="flex gap-2 pt-2 no-print">
+        <button onclick="window.print()" class="flex-1 py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-xl text-xs font-bold transition flex items-center justify-center gap-1.5 cursor-pointer">
+          <span>🖨️</span> Cetak Struk
+        </button>
+      </div>
+
+      <div class="no-print pt-1">
         <button id="btn-trx-modal-done" class="w-full py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl text-xs font-semibold transition cursor-pointer">
           Tutup
         </button>
@@ -544,10 +666,69 @@
       }
     };
 
+    const getLocalDateStr = (d = new Date()) => {
+      const year = d.getFullYear();
+      const month = String(d.getMonth() + 1).padStart(2, '0');
+      const day = String(d.getDate()).padStart(2, '0');
+      return `${year}-${month}-${day}`;
+    };
+
+    const extractDateOnly = (itemOrStr) => {
+      if (!itemOrStr) return '';
+      if (typeof itemOrStr === 'object') {
+        if (itemOrStr.date && /^\d{4}-\d{2}-\d{2}/.test(String(itemOrStr.date))) {
+          return String(itemOrStr.date).slice(0, 10);
+        }
+        if (itemOrStr.timestampMillis) {
+          const d = new Date(Number(itemOrStr.timestampMillis));
+          if (!isNaN(d.getTime())) return getLocalDateStr(d);
+        }
+        const raw = itemOrStr.timestamp || itemOrStr.endTime || itemOrStr.closingTime || '';
+        return extractDateOnly(raw);
+      }
+      const s = String(itemOrStr).trim();
+      if (/^\d{4}-\d{2}-\d{2}/.test(s)) {
+        // Parse explicit ISO with timezone cleanly when possible, else take YYYY-MM-DD prefix
+        if (s.length > 10 && /([Zz]|[+-]\d{2}:?\d{2})$/.test(s)) {
+          const parsed = new Date(s);
+          if (!isNaN(parsed.getTime())) return getLocalDateStr(parsed);
+        }
+        return s.slice(0, 10);
+      }
+      const parsed = new Date(s);
+      return !isNaN(parsed.getTime()) ? getLocalDateStr(parsed) : '';
+    };
+
+    const normalizePaymentMethod = (pm) => {
+      const upper = String(pm || 'CASH').toUpperCase().trim();
+      if (upper === 'CASH' || upper === 'TUNAI') return 'TUNAI';
+      if (upper === 'QRIS') return 'QRIS';
+      if (upper === 'TRANSFER' || upper === 'BANK_TRANSFER') return 'TRANSFER';
+      if (upper === 'EDC' || upper === 'DEBIT' || upper === 'CREDIT' || upper === 'CARD') return 'EDC';
+      return upper || 'TUNAI';
+    };
+
+    const getRtdbBaseUrl = () => {
+      const cleanHost = activeRtdb
+        .replace('https://', '')
+        .replace('.firebaseio.com', '')
+        .replace('.asia-southeast1.firebasedatabase.app', '');
+      return `https://${cleanHost}.asia-southeast1.firebasedatabase.app`;
+    };
+
     // Global in-memory state
     let shiftReports = [];
     let transactions = [];
+    let dailyReports = [];
+    let expensesList = [];
+    let cashFlowsOut = [];
     let currentModalShift = null;
+    let searchExpenseKeyword = '';
+
+    // Filter state
+    let activePeriod = 'TODAY'; // TODAY, YESTERDAY, 7DAYS, MONTH, ALL, CUSTOM
+    let customSelectedDate = '';
+    let lastKnownDate = getLocalDateStr(new Date());
 
     // Firebase App & Database Setup
     let database;
@@ -576,7 +757,7 @@
         <div class="space-y-1">
           <p class="font-bold text-sm text-amber-200">Database Mengembalikan "${err}"</p>
           <p class="text-slate-300">Data belum dapat masuk karena <strong>Rules Realtime Database di Firebase Console belum di-PUBLISH</strong>.</p>
-          <p class="text-slate-400">Silakan buka <strong>Firebase Console &gt; Realtime Database &gt; Rules</strong>, pastikan rules <code>".read": true, ".write": true</code> (atau dengan tanggal), lalu <strong>wajib klik tombol biru "Publish" (Publikasikan)</strong> di bagian atas editor.</p>
+          <p class="text-slate-400">Silakan buka <strong>Firebase Console &gt; Realtime Database &gt; Rules</strong>, pastikan rules <code>".read": true, ".write": true</code>, lalu <strong>wajib klik tombol biru "Publish" (Publikasikan)</strong> di bagian atas editor.</p>
         </div>
       `;
       const container = document.querySelector('main');
@@ -667,7 +848,7 @@
           const timeB = new Date(b.timestamp || b.endTime || b.date || 0).getTime();
           return timeB - timeA;
         });
-        renderShiftView();
+        renderAllViews();
       }
     }
 
@@ -706,8 +887,7 @@
         `https://${cleanHost}.firebaseio.com/transactions.json`,
         `https://${cleanHost}-default-rtdb.asia-southeast1.firebasedatabase.app/transactions.json`
       ];
-      const uniqueUrls = [...new Set(urls)];
-      uniqueUrls.forEach(url => {
+      urls.forEach(url => {
         fetch(url)
           .then(res => res.json())
           .then(data => {
@@ -754,175 +934,542 @@
           const timeB = new Date(b.timestamp || b.date || 0).getTime();
           return timeB - timeA;
         });
-        renderTrxView();
+        renderAllViews();
       }
     }
 
-    // Render Views
+    // 3. Listen to Daily Reports Archive (Node: /daily_reports)
+    function setupDailyReportsListener() {
+      if (database) {
+        try {
+          const dailyRef = ref(database, 'daily_reports');
+          onValue(dailyRef, (snapshot) => {
+            const data = snapshot.val();
+            if (data && typeof data === 'object') {
+              processDailyReportsData(data);
+            }
+          }, () => {
+            fetchDailyReportsRest();
+          });
+        } catch(e) {
+          fetchDailyReportsRest();
+        }
+      } else {
+        fetchDailyReportsRest();
+      }
+    }
+
+    function fetchDailyReportsRest() {
+      const cleanHost = activeRtdb
+        .replace('https://', '')
+        .replace('.firebaseio.com', '')
+        .replace('.asia-southeast1.firebasedatabase.app', '');
+      const urls = [
+        `https://foodrock-report-default-rtdb.asia-southeast1.firebasedatabase.app/daily_reports.json`,
+        `https://${cleanHost}.asia-southeast1.firebasedatabase.app/daily_reports.json`,
+        `https://${cleanHost}.firebaseio.com/daily_reports.json`,
+        `https://${cleanHost}-default-rtdb.asia-southeast1.firebasedatabase.app/daily_reports.json`
+      ];
+      urls.forEach(url => {
+        fetch(url)
+          .then(res => res.json())
+          .then(data => {
+            if (data && typeof data === 'object' && !data.error) {
+              processDailyReportsData(data);
+            }
+          })
+          .catch(() => {});
+      });
+    }
+
+    function processDailyReportsData(data) {
+      if (!data || typeof data !== 'object') return;
+      const list = Object.keys(data)
+        .filter(key => /^\d{4}-\d{2}-\d{2}$/.test(key) && data[key] && typeof data[key] === 'object')
+        .map(key => ({
+          date: data[key].date || key,
+          ...data[key]
+        }));
+
+      const map = new Map(dailyReports.map(d => [d.date, d]));
+      list.forEach(item => {
+        if (item.date) map.set(item.date, { ...(map.get(item.date) || {}), ...item });
+      });
+
+      dailyReports = Array.from(map.values()).sort((a, b) => b.date.localeCompare(a.date));
+      renderDailyReportsView();
+    }
+
+    // 4. Listen to Expenses (/expenses) & Cash Flows OUT (/cash_flows)
+    function setupExpensesListener() {
+      if (database) {
+        try {
+          const expRef = ref(database, 'expenses');
+          onValue(expRef, (snapshot) => {
+            processExpensesData(snapshot.val());
+          }, () => fetchExpensesRest());
+
+          const cfRef = ref(database, 'cash_flows');
+          onValue(cfRef, (snapshot) => {
+            processCashFlowsData(snapshot.val());
+          }, () => fetchCashFlowsRest());
+        } catch (e) {
+          fetchExpensesRest();
+          fetchCashFlowsRest();
+        }
+      } else {
+        fetchExpensesRest();
+        fetchCashFlowsRest();
+      }
+    }
+
+    function fetchExpensesRest() {
+      const cleanHost = activeRtdb
+        .replace('https://', '')
+        .replace('.firebaseio.com', '')
+        .replace('.asia-southeast1.firebasedatabase.app', '');
+      const urls = [
+        `https://foodrock-report-default-rtdb.asia-southeast1.firebasedatabase.app/expenses.json`,
+        `https://${cleanHost}.asia-southeast1.firebasedatabase.app/expenses.json`,
+        `https://${cleanHost}.firebaseio.com/expenses.json`
+      ];
+      urls.forEach(url => {
+        fetch(url)
+          .then(res => res.json())
+          .then(data => {
+            if (data === null) {
+              expensesList = [];
+              renderAllViews();
+            } else if (data && typeof data === 'object' && !data.error) {
+              processExpensesData(data);
+            }
+          })
+          .catch(() => {});
+      });
+    }
+
+    function fetchCashFlowsRest() {
+      const cleanHost = activeRtdb
+        .replace('https://', '')
+        .replace('.firebaseio.com', '')
+        .replace('.asia-southeast1.firebasedatabase.app', '');
+      const urls = [
+        `https://foodrock-report-default-rtdb.asia-southeast1.firebasedatabase.app/cash_flows.json`,
+        `https://${cleanHost}.asia-southeast1.firebasedatabase.app/cash_flows.json`
+      ];
+      urls.forEach(url => {
+        fetch(url)
+          .then(res => res.json())
+          .then(data => {
+            if (data && typeof data === 'object' && !data.error) {
+              processCashFlowsData(data);
+            }
+          })
+          .catch(() => {});
+      });
+    }
+
+    function processExpensesData(data) {
+      if (!data || typeof data !== 'object') {
+        expensesList = [];
+        renderAllViews();
+        return;
+      }
+      expensesList = Object.keys(data)
+        .filter(k => data[k] && typeof data[k] === 'object')
+        .map(k => ({
+          id: data[k].id || k,
+          title: data[k].title || data[k].description || 'Pengeluaran',
+          category: data[k].category || 'Operasional',
+          amount: Number(data[k].amount) || 0,
+          notes: data[k].notes || data[k].description || '-',
+          createdBy: data[k].createdBy || data[k].cashierName || 'Admin',
+          date: data[k].date || extractDateOnly(data[k]),
+          timestamp: data[k].timestamp || '',
+          timestampMillis: data[k].timestampMillis || null
+        }));
+      renderAllViews();
+    }
+
+    function processCashFlowsData(data) {
+      if (!data || typeof data !== 'object') {
+        cashFlowsOut = [];
+        renderAllViews();
+        return;
+      }
+      cashFlowsOut = Object.keys(data)
+        .filter(k => data[k] && typeof data[k] === 'object' && String(data[k].type || 'OUT').toUpperCase() === 'OUT')
+        .map(k => ({
+          id: data[k].id || k,
+          title: data[k].description || data[k].category || 'Kas Keluar',
+          category: data[k].category || 'Operasional',
+          amount: Number(data[k].amount) || 0,
+          notes: data[k].notes || data[k].description || '-',
+          createdBy: data[k].cashierName || 'Kasir',
+          date: data[k].date || extractDateOnly(data[k]),
+          timestamp: data[k].timestamp || '',
+          timestampMillis: data[k].timestampMillis || null
+        }));
+      renderAllViews();
+    }
+
+    function getCombinedExpenses() {
+      const seen = new Set();
+      const merged = [];
+      [...expensesList, ...cashFlowsOut].forEach(e => {
+        const key = String(e.id || `${e.title}_${e.amount}_${e.timestamp}`);
+        if (!seen.has(key)) {
+          seen.add(key);
+          merged.push(e);
+        }
+      });
+      return merged.sort((a, b) => {
+        const tA = Number(a.timestampMillis) || new Date(a.timestamp || a.date || 0).getTime();
+        const tB = Number(b.timestampMillis) || new Date(b.timestamp || b.date || 0).getTime();
+        return tB - tA;
+      });
+    }
+
+    // FILTER LOGIC: Get active items according to selected period
+    function getFilterTargetDate() {
+      const today = new Date();
+      if (activePeriod === 'TODAY') {
+        return getLocalDateStr(today);
+      } else if (activePeriod === 'YESTERDAY') {
+        const yest = new Date(today);
+        yest.setDate(today.getDate() - 1);
+        return getLocalDateStr(yest);
+      } else if (activePeriod === 'CUSTOM') {
+        return customSelectedDate || getLocalDateStr(today);
+      }
+      return null;
+    }
+
+    function filterItemByActivePeriod(item) {
+      const itemDate = extractDateOnly(item);
+      if (!itemDate) return false;
+      const now = new Date();
+      const todayStr = getLocalDateStr(now);
+
+      if (activePeriod === 'TODAY') {
+        return itemDate === todayStr;
+      }
+      if (activePeriod === 'YESTERDAY') {
+        const yest = new Date(now);
+        yest.setDate(now.getDate() - 1);
+        return itemDate === getLocalDateStr(yest);
+      }
+      if (activePeriod === '7DAYS') {
+        const past = new Date(now);
+        past.setDate(now.getDate() - 6);
+        const pastStr = getLocalDateStr(past);
+        return itemDate >= pastStr && itemDate <= todayStr;
+      }
+      if (activePeriod === 'MONTH') {
+        const thisMonthPrefix = todayStr.slice(0, 7);
+        return itemDate.startsWith(thisMonthPrefix);
+      }
+      if (activePeriod === 'CUSTOM') {
+        return itemDate === customSelectedDate;
+      }
+      // 'ALL'
+      return true;
+    }
+
+    function updateFilterStatusBanner() {
+      const lblDesc = document.getElementById('lbl-active-period-desc');
+      const lblDate = document.getElementById('lbl-active-date-display');
+      const todayStr = getLocalDateStr(new Date());
+
+      if (activePeriod === 'TODAY') {
+        if (lblDesc) lblDesc.innerHTML = `<span class="text-emerald-400 font-bold">⚡ Laporan Hari Ini (Live)</span> &bull; Di saat pergantian tanggal, laporan otomatis kembali ke nol (Rp 0)`;
+        if (lblDate) lblDate.textContent = `Tanggal: ${todayStr}`;
+      } else if (activePeriod === 'YESTERDAY') {
+        const yest = new Date();
+        yest.setDate(yest.getDate() - 1);
+        const yestStr = getLocalDateStr(yest);
+        if (lblDesc) lblDesc.innerHTML = `<span class="text-amber-400 font-bold">📅 Arsip Kemarin</span> &bull; Rekapitulasi penjualan shift & pesanan kemarin`;
+        if (lblDate) lblDate.textContent = `Tanggal: ${yestStr}`;
+      } else if (activePeriod === '7DAYS') {
+        if (lblDesc) lblDesc.innerHTML = `<span class="text-sky-400 font-bold">📊 Akumulasi 7 Hari Terakhir</span> &bull; Total penjualan dari seminggu terakhir`;
+        if (lblDate) lblDate.textContent = `Periode: 7 Hari`;
+      } else if (activePeriod === 'MONTH') {
+        if (lblDesc) lblDesc.innerHTML = `<span class="text-purple-400 font-bold">📆 Akumulasi Bulan Ini</span> &bull; Rekapitulasi omset & kas laci bulan berjalan`;
+        if (lblDate) lblDate.textContent = `Bulan: ${todayStr.slice(0, 7)}`;
+      } else if (activePeriod === 'CUSTOM') {
+        if (lblDesc) lblDesc.innerHTML = `<span class="text-orange-400 font-bold">📂 Arsip Khusus Tanggal</span> &bull; Menampilkan data historis tanggal terpilih`;
+        if (lblDate) lblDate.textContent = `Tanggal: ${customSelectedDate}`;
+      } else {
+        if (lblDesc) lblDesc.innerHTML = `<span class="text-slate-300 font-bold">📂 Semua Arsip Riwayat</span> &bull; Menampilkan seluruh data shift & transaksi dari awal`;
+        if (lblDate) lblDate.textContent = `Semua Riwayat`;
+      }
+    }
+
+    // Master Render trigger
+    function renderAllViews() {
+      updateFilterStatusBanner();
+      renderShiftView();
+      renderExpensesView();
+      renderTrxView();
+      renderDailyReportsView();
+    }
+
+    // Render Shift View
     function renderShiftView() {
       const tbody = document.getElementById('rtdb-shifts-body');
       const badge = document.getElementById('shifts-badge');
       const statShifts = document.getElementById('stat-total-shifts');
       
-      if (badge) badge.textContent = `${shiftReports.length} Laporan`;
-      if (statShifts) statShifts.textContent = `${shiftReports.length} Shift`;
+      const filteredShifts = shiftReports.filter(filterItemByActivePeriod);
+      const filteredTrx = transactions.filter(filterItemByActivePeriod);
 
-      if (shiftReports.length === 0) {
+      if (badge) badge.textContent = `${filteredShifts.length} Laporan`;
+      if (statShifts) statShifts.textContent = `${filteredShifts.length} Shift`;
+
+      // Latest shift banner update strictly scoped to active period (resets to Rp 0 on new date!)
+      const latest = filteredShifts[0] || null;
+      const elLatestId = document.getElementById('latest-shift-id');
+      const elLatestTime = document.getElementById('latest-shift-time');
+      const elLatestCashier = document.getElementById('latest-shift-cashier');
+      const elLatestNotes = document.getElementById('latest-shift-notes');
+      const elLatestRev = document.getElementById('latest-shift-revenue');
+      const elLatestCash = document.getElementById('latest-shift-cash');
+      const btnViewLatest = document.getElementById('btn-view-latest-receipt');
+
+      if (latest) {
+        if (elLatestId) elLatestId.textContent = latest.shiftNumber || latest.id;
+        if (elLatestTime) elLatestTime.textContent = formatDate(latest.timestamp || latest.endTime);
+        if (elLatestCashier) elLatestCashier.textContent = `Kasir: ${latest.cashierName || 'Kasir'}`;
+        if (elLatestNotes) elLatestNotes.textContent = latest.notes ? `Catatan: "${latest.notes}"` : "Laporan shift kasir otomatis tercatat untuk tanggal ini.";
+        if (elLatestRev) elLatestRev.textContent = formatRupiah(latest.totalRevenue);
+        const actCashLatest = Number(latest.actualCash != null ? latest.actualCash : latest.totalCash) || 0;
+        if (elLatestCash) elLatestCash.textContent = formatRupiah(actCashLatest);
+        if (btnViewLatest) {
+          btnViewLatest.disabled = false;
+          btnViewLatest.classList.remove('opacity-50');
+          btnViewLatest.onclick = () => window.openShiftModal(latest.id);
+        }
+      } else {
+        const targetDateLabel = getFilterTargetDate() || getLocalDateStr(new Date());
+        if (elLatestId) elLatestId.textContent = activePeriod === 'TODAY' ? `Belum Ada Tutup Kasir Hari Ini` : `Belum Ada Tutup Kasir (${targetDateLabel})`;
+        if (elLatestTime) elLatestTime.textContent = `Tanggal: ${targetDateLabel}`;
+        if (elLatestCashier) elLatestCashier.textContent = 'Menunggu Shift';
+        if (elLatestNotes) elLatestNotes.textContent = 'Di hari baru / tanggal baru, laporan omset & tutup kasir dimulai dari nol (Rp 0).';
+        if (elLatestRev) elLatestRev.textContent = 'Rp 0';
+        if (elLatestCash) elLatestCash.textContent = 'Rp 0';
+        if (btnViewLatest) {
+          btnViewLatest.disabled = true;
+          btnViewLatest.classList.add('opacity-50');
+          btnViewLatest.onclick = null;
+        }
+      }
+
+      // Render Shift Table Rows
+      if (filteredShifts.length === 0) {
         tbody.innerHTML = `
           <tr>
             <td colspan="10" class="py-12 text-center text-slate-500">
-              Belum ada laporan tutup kasir yang tersinkron di node <code class="text-orange-400 font-mono">/shift_reports</code>.
+              <div class="flex flex-col items-center justify-center">
+                <span class="text-3xl mb-1">📋</span>
+                <p class="font-bold text-slate-300">Belum ada laporan tutup kasir pada periode ini.</p>
+                <p class="text-[11px] text-slate-500 mt-0.5">Saat pergantian tanggal baru, omset & shift kembali ke nol (Rp 0) hingga kasir melakukan tutup kasir.</p>
+              </div>
+            </td>
+          </tr>
+        `;
+      } else {
+        tbody.innerHTML = filteredShifts.map(s => {
+          const expCash = Number(s.expectedCash != null ? s.expectedCash : s.totalCash) || 0;
+          const actCash = Number(s.actualCash != null ? s.actualCash : s.totalCash) || 0;
+          const diff = Number(s.difference != null ? s.difference : (actCash - expCash));
+
+          return `
+            <tr class="hover:bg-slate-800/40 transition">
+              <td class="py-3 px-4 font-semibold text-white">
+                ${s.shiftNumber || s.id}
+                <div class="text-[10px] text-slate-500 font-mono">${formatDate(s.timestamp || s.endTime)}</div>
+              </td>
+              <td class="py-3 px-4 text-slate-300 font-medium">${s.cashierName || 'Kasir'}</td>
+              <td class="py-3 px-4 text-center font-bold font-mono text-slate-300">${s.totalTransactions || 0}</td>
+              <td class="py-3 px-4 text-right font-black font-mono text-emerald-400">${formatRupiah(s.totalRevenue)}</td>
+              <td class="py-3 px-4 text-right font-mono text-slate-400">${formatRupiah(expCash)}</td>
+              <td class="py-3 px-4 text-right font-bold font-mono text-amber-400">${formatRupiah(actCash)}</td>
+              <td class="py-3 px-4 text-right font-mono text-purple-400">${formatRupiah(s.totalNonCash)}</td>
+              <td class="py-3 px-4 text-slate-400 italic max-w-xs truncate">${s.notes || '-'}</td>
+              <td class="py-3 px-4 text-center no-print">
+                <button onclick="window.openShiftModal('${s.id}')" class="px-2.5 py-1 text-[11px] font-bold rounded-lg bg-orange-500/10 hover:bg-orange-500/20 text-orange-400 border border-orange-500/30 transition cursor-pointer flex items-center gap-1 mx-auto whitespace-nowrap">
+                  <span>📋</span> Detail
+                </button>
+              </td>
+            </tr>
+          `;
+        }).join('');
+      }
+
+      // RECALCULATE KPI CARDS FOR ACTIVE PERIOD
+      // Resets cleanly to Rp 0 / 0 Struk / 0 Shift when the date changes and no data exists yet for today.
+      let totalRev = 0;
+      let totalCash = 0;
+      let totalNonCash = 0;
+      let totalTrxCount = 0;
+
+      if (filteredShifts.length > 0) {
+        totalRev = filteredShifts.reduce((acc, s) => acc + (Number(s.totalRevenue) || 0), 0);
+        totalCash = filteredShifts.reduce((acc, s) => acc + (Number(s.actualCash != null ? s.actualCash : s.totalCash) || 0), 0);
+        totalNonCash = filteredShifts.reduce((acc, s) => acc + (Number(s.totalNonCash) || 0), 0);
+        totalTrxCount = filteredShifts.reduce((acc, s) => acc + (Number(s.totalTransactions) || 0), 0);
+      } else if (filteredTrx.length > 0) {
+        totalRev = filteredTrx.reduce((acc, t) => acc + (Number(t.totalAmount || t.grandTotal) || 0), 0);
+        totalCash = filteredTrx.filter(t => normalizePaymentMethod(t.paymentMethod) === 'TUNAI').reduce((acc, t) => acc + (Number(t.totalAmount || t.grandTotal) || 0), 0);
+        totalNonCash = filteredTrx.filter(t => normalizePaymentMethod(t.paymentMethod) !== 'TUNAI').reduce((acc, t) => acc + (Number(t.totalAmount || t.grandTotal) || 0), 0);
+        totalTrxCount = filteredTrx.length;
+      }
+
+      document.getElementById('stat-total-revenue').textContent = formatRupiah(totalRev);
+      document.getElementById('stat-total-cash').textContent = formatRupiah(totalCash);
+      document.getElementById('stat-total-noncash').textContent = formatRupiah(totalNonCash);
+      document.getElementById('stat-total-trx').textContent = `${totalTrxCount} Struk`;
+
+      const subRev = document.getElementById('sub-total-revenue');
+      if (subRev) {
+        if (activePeriod === 'TODAY') {
+          subRev.textContent = totalRev === 0 ? `Mulai Rp 0 (${getLocalDateStr(new Date())})` : "Pendapatan kotor hari ini";
+        } else {
+          subRev.textContent = `Periode: ${getFilterTargetDate() || activePeriod}`;
+        }
+      }
+    }
+
+    // Render Expenses View & KPI
+    function renderExpensesView() {
+      const combined = getCombinedExpenses();
+      const periodFiltered = combined.filter(filterItemByActivePeriod);
+
+      const totalExp = periodFiltered.reduce((acc, e) => acc + (Number(e.amount) || 0), 0);
+      const elStatExp = document.getElementById('stat-total-expenses');
+      const elSubExp = document.getElementById('sub-total-expenses');
+      const elTabBadge = document.getElementById('expenses-tab-count-badge');
+      const elPill = document.getElementById('expenses-total-pill');
+
+      if (elStatExp) elStatExp.textContent = formatRupiah(totalExp);
+      if (elSubExp) elSubExp.textContent = `${periodFiltered.length} catatan pengeluaran`;
+      if (elTabBadge) elTabBadge.textContent = `${periodFiltered.length}`;
+      if (elPill) elPill.textContent = `Total: ${formatRupiah(totalExp)}`;
+
+      const filtered = periodFiltered.filter(e => {
+        if (!searchExpenseKeyword) return true;
+        return (e.title || '').toLowerCase().includes(searchExpenseKeyword) ||
+               (e.category || '').toLowerCase().includes(searchExpenseKeyword) ||
+               (e.notes || '').toLowerCase().includes(searchExpenseKeyword) ||
+               (e.createdBy || '').toLowerCase().includes(searchExpenseKeyword);
+      });
+
+      const tbody = document.getElementById('rtdb-expenses-body');
+      if (!tbody) return;
+
+      if (filtered.length === 0) {
+        tbody.innerHTML = `
+          <tr>
+            <td colspan="6" class="py-12 text-center text-slate-500">
+              <p class="font-bold text-slate-300">Tidak ada catatan pengeluaran pada periode ini.</p>
+              <p class="text-[11px] text-slate-500 mt-0.5">Saat pergantian tanggal, data pengeluaran hari ini dimulai kembali dari Rp 0.</p>
             </td>
           </tr>
         `;
         return;
       }
 
-      // Render Highlight Banner with Latest Shift
-      const latest = shiftReports[0];
-      const elLatestId = document.getElementById('latest-shift-id');
-      const elLatestTime = document.getElementById('latest-shift-time');
-      const elLatestCashier = document.getElementById('latest-shift-cashier');
-      const elLatestRev = document.getElementById('latest-shift-revenue');
-      const elLatestCash = document.getElementById('latest-shift-cash');
-      const elLatestDiff = document.getElementById('latest-shift-diff-badge');
-      const elLatestNotes = document.getElementById('latest-shift-notes');
-
-      if (elLatestId) elLatestId.textContent = latest.shiftNumber || latest.id;
-      if (elLatestTime) elLatestTime.textContent = formatDate(latest.timestamp || latest.endTime);
-      if (elLatestCashier) elLatestCashier.textContent = `Kasir: ${latest.cashierName || 'Kasir'}`;
-      if (elLatestRev) elLatestRev.textContent = formatRupiah(latest.totalRevenue);
-      
-      const actCashLatest = Number(latest.actualCash != null ? latest.actualCash : latest.totalCash) || 0;
-      const expCashLatest = Number(latest.expectedCash != null ? latest.expectedCash : latest.totalCash) || 0;
-      const diffLatest = Number(latest.difference != null ? latest.difference : (actCashLatest - expCashLatest));
-
-      if (elLatestCash) elLatestCash.textContent = formatRupiah(actCashLatest);
-
-      if (elLatestDiff) {
-        if (diffLatest === 0) {
-          elLatestDiff.innerHTML = `<span class="bg-emerald-500/20 text-emerald-400 border border-emerald-500/40 text-xs font-bold px-2 py-0.5 rounded-md">✓ Kas Pas</span>`;
-        } else if (diffLatest < 0) {
-          elLatestDiff.innerHTML = `<span class="bg-rose-500/20 text-rose-400 border border-rose-500/40 text-xs font-mono font-bold px-2 py-0.5 rounded-md">⚠️ Kurang ${formatRupiah(Math.abs(diffLatest))}</span>`;
-        } else {
-          elLatestDiff.innerHTML = `<span class="bg-blue-500/20 text-blue-400 border border-blue-500/40 text-xs font-mono font-bold px-2 py-0.5 rounded-md">ℹ️ Lebih ${formatRupiah(diffLatest)}</span>`;
-        }
-      }
-
-      if (elLatestNotes) elLatestNotes.textContent = latest.notes ? `Catatan: ${latest.notes}` : 'Tutup kasir berhasil tersinkron otomatis ke Realtime Database.';
-
-      document.getElementById('btn-view-latest-receipt').onclick = () => openShiftModal(latest.id);
-
-      // Render Shift Table Rows
-      tbody.innerHTML = shiftReports.map(s => {
-        const expCash = Number(s.expectedCash != null ? s.expectedCash : s.totalCash) || 0;
-        const actCash = Number(s.actualCash != null ? s.actualCash : s.totalCash) || 0;
-        const diff = Number(s.difference != null ? s.difference : (actCash - expCash));
-
-        let diffBadge = `<span class="bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 text-[10px] font-bold px-2 py-0.5 rounded-md">✓ Pas</span>`;
-        if (diff < 0) {
-          diffBadge = `<span class="bg-rose-500/10 text-rose-400 border border-rose-500/30 text-[10px] font-mono font-bold px-2 py-0.5 rounded-md whitespace-nowrap">⚠️ -${formatRupiah(Math.abs(diff))}</span>`;
-        } else if (diff > 0) {
-          diffBadge = `<span class="bg-blue-500/10 text-blue-400 border border-blue-500/30 text-[10px] font-mono font-bold px-2 py-0.5 rounded-md whitespace-nowrap">ℹ️ +${formatRupiah(diff)}</span>`;
-        }
-
-        return `
-          <tr class="hover:bg-slate-800/40 transition">
-            <td class="py-3 px-4 font-semibold text-white">
-              ${s.shiftNumber || s.id}
-              <div class="text-[10px] text-slate-500 font-mono">${formatDate(s.timestamp || s.endTime)}</div>
-            </td>
-            <td class="py-3 px-4 text-slate-300 font-medium">${s.cashierName || 'Kasir'}</td>
-            <td class="py-3 px-4 text-center font-bold font-mono text-slate-300">${s.totalTransactions || 0}</td>
-            <td class="py-3 px-4 text-right font-black font-mono text-emerald-400">${formatRupiah(s.totalRevenue)}</td>
-            <td class="py-3 px-4 text-right font-mono text-slate-400">${formatRupiah(expCash)}</td>
-            <td class="py-3 px-4 text-right font-bold font-mono text-amber-400">${formatRupiah(actCash)}</td>
-            <td class="py-3 px-4 text-center">${diffBadge}</td>
-            <td class="py-3 px-4 text-right font-mono text-purple-400">${formatRupiah(s.totalNonCash)}</td>
-            <td class="py-3 px-4 text-slate-400 italic max-w-xs truncate">${s.notes || '-'}</td>
-            <td class="py-3 px-4 text-center no-print">
-              <button onclick="window.openShiftModal('${s.id}')" class="px-2.5 py-1 text-[11px] font-bold rounded-lg bg-orange-500/10 hover:bg-orange-500/20 text-orange-400 border border-orange-500/30 transition cursor-pointer flex items-center gap-1 mx-auto whitespace-nowrap">
-                <span>📋</span> Detail
-              </button>
-            </td>
-          </tr>
-        `;
-      }).join('');
-
-      // Recalculate daily totals
-      const totalRev = shiftReports.reduce((acc, s) => acc + (Number(s.totalRevenue) || 0), 0);
-      const totalCash = shiftReports.reduce((acc, s) => acc + (Number(s.actualCash != null ? s.actualCash : s.totalCash) || 0), 0);
-      const totalNonCash = shiftReports.reduce((acc, s) => acc + (Number(s.totalNonCash) || 0), 0);
-      const totalTrxCount = shiftReports.reduce((acc, s) => acc + (Number(s.totalTransactions) || 0), 0);
-
-      document.getElementById('stat-total-revenue').textContent = formatRupiah(totalRev);
-      document.getElementById('stat-total-cash').textContent = formatRupiah(totalCash);
-      document.getElementById('stat-total-noncash').textContent = formatRupiah(totalNonCash);
-      document.getElementById('stat-total-trx').textContent = `${totalTrxCount} Struk`;
+      tbody.innerHTML = filtered.map(e => `
+        <tr class="hover:bg-slate-800/40 transition">
+          <td class="py-3 px-4 font-mono text-slate-400">
+            ${formatDate(e.timestamp || e.date)}
+          </td>
+          <td class="py-3 px-4 font-semibold text-white">${e.title || '-'}</td>
+          <td class="py-3 px-4">
+            <span class="px-2 py-0.5 rounded-md text-[10px] font-bold bg-rose-500/10 text-rose-300 border border-rose-500/30">${e.category || 'Operasional'}</span>
+          </td>
+          <td class="py-3 px-4 text-slate-300 italic max-w-xs">${e.notes || '-'}</td>
+          <td class="py-3 px-4 text-slate-300">${e.createdBy || 'Admin'}</td>
+          <td class="py-3 px-4 text-right font-black font-mono text-rose-400">${formatRupiah(e.amount)}</td>
+        </tr>
+      `).join('');
     }
 
-    let currentModalTrx = null;
     let paymentFilter = 'ALL';
     let searchKeyword = '';
 
     function renderTrxView() {
       const tbody = document.getElementById('rtdb-trx-body');
       const badge = document.getElementById('trx-badge');
-      if (badge) badge.textContent = `${transactions.length} Transaksi`;
 
-      let filtered = transactions.filter(t => {
-        // Payment filter
+      const periodFiltered = transactions.filter(filterItemByActivePeriod);
+
+      const filtered = periodFiltered.filter(trx => {
         if (paymentFilter !== 'ALL') {
-          const m = (t.paymentMethod || 'TUNAI').toUpperCase();
-          if (m !== paymentFilter) return false;
+          const method = normalizePaymentMethod(trx.paymentMethod);
+          if (method !== paymentFilter) return false;
         }
-        // Search keyword
         if (searchKeyword) {
-          const query = searchKeyword.toLowerCase();
-          const inv = (t.orderNumber || t.invoiceNumber || t.id || '').toLowerCase();
-          const cust = (t.customerName || '').toLowerCase();
-          const cash = (t.cashierName || '').toLowerCase();
-          const items = (t.itemsSummary || '').toLowerCase();
-          if (!inv.includes(query) && !cust.includes(query) && !cash.includes(query) && !items.includes(query)) {
+          const inv = (trx.invoiceNumber || trx.id || '').toLowerCase();
+          const cust = (trx.customerName || '').toLowerCase();
+          const cash = (trx.cashierName || '').toLowerCase();
+          const items = (trx.itemsSummary || '').toLowerCase();
+          if (!inv.includes(searchKeyword) && !cust.includes(searchKeyword) && !cash.includes(searchKeyword) && !items.includes(searchKeyword)) {
             return false;
           }
         }
         return true;
       });
 
+      if (badge) badge.textContent = `${filtered.length} Transaksi`;
+
       if (filtered.length === 0) {
-        tbody.innerHTML = `<tr><td colspan="7" class="py-12 text-center text-slate-500">Tidak ada transaksi yang cocok dengan filter atau kata kunci.</td></tr>`;
+        tbody.innerHTML = `
+          <tr>
+            <td colspan="7" class="py-12 text-center text-slate-500">
+              <p class="font-bold text-slate-300">Tidak ada transaksi penjualan pada periode / filter ini.</p>
+              <p class="text-[11px] text-slate-500 mt-0.5">Saat pergantian tanggal, daftar transaksi hari ini mulai dari nol.</p>
+            </td>
+          </tr>
+        `;
         return;
       }
 
       tbody.innerHTML = filtered.map(t => {
-        const inv = t.orderNumber || t.invoiceNumber || t.id;
-        const total = Number(t.grandTotal || t.totalAmount) || 0;
-        const payMethod = t.paymentMethod || 'TUNAI';
-        const table = t.tableNumber ? ` • Meja ${t.tableNumber}` : '';
-        const orderType = t.orderType ? ` (${t.orderType})` : '';
+        const inv = t.invoiceNumber || t.id;
+        const dateStr = formatDate(t.timestamp || t.date);
+        const cust = t.customerName || 'Pelanggan Umum';
+        const table = t.tableNumber ? `• Meja ${t.tableNumber}` : '';
+        const orderType = t.orderType ? (t.orderType === 'DINE_IN' ? 'Makan di Tempat' : 'Bungkus') : '';
+        const cash = t.cashierName || 'Kasir';
+        const items = t.itemsSummary || `${t.totalItemsCount || 1} item pesanan`;
+        const method = t.paymentMethod || 'TUNAI';
+        const total = Number(t.totalAmount || t.grandTotal) || 0;
+
+        let methodBadge = `<span class="bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 text-[10px] font-bold px-2 py-0.5 rounded-md">💵 Tunai</span>`;
+        if (method === 'QRIS') {
+          methodBadge = `<span class="bg-purple-500/10 text-purple-400 border border-purple-500/30 text-[10px] font-bold px-2 py-0.5 rounded-md">📱 QRIS</span>`;
+        } else if (method === 'TRANSFER') {
+          methodBadge = `<span class="bg-blue-500/10 text-blue-400 border border-blue-500/30 text-[10px] font-bold px-2 py-0.5 rounded-md">🏦 Transfer</span>`;
+        }
 
         return `
           <tr class="hover:bg-slate-800/40 transition">
-            <td class="py-3 px-4 font-mono font-semibold text-white">
-              <span class="text-orange-400 font-bold">${inv}</span>
-              <div class="text-[10px] text-slate-500">${formatDate(t.timestamp)}</div>
+            <td class="py-3 px-4 font-semibold text-white">
+              #${inv}
+              <div class="text-[10px] text-slate-500 font-mono">${dateStr}</div>
             </td>
-            <td class="py-3 px-4 text-slate-300 font-medium">
-              ${t.customerName || 'Umum'}
-              <div class="text-[10px] text-slate-500">${orderType}${table}</div>
-            </td>
-            <td class="py-3 px-4 text-slate-400">${t.cashierName || 'Kasir'}</td>
-            <td class="py-3 px-4 text-slate-300 max-w-xs truncate" title="${t.itemsSummary || '-'}">${t.itemsSummary || '-'}</td>
             <td class="py-3 px-4">
-              <span class="px-2 py-0.5 rounded text-[10px] font-bold ${payMethod === 'TUNAI' ? 'bg-amber-500/10 text-amber-400 border border-amber-500/30' : 'bg-purple-500/10 text-purple-400 border border-purple-500/30'}">
-                ${payMethod}
-              </span>
+              <div class="text-slate-200 font-medium">${cust}</div>
+              <div class="text-[10px] text-slate-400">${orderType} ${table}</div>
             </td>
+            <td class="py-3 px-4 text-slate-300">${cash}</td>
+            <td class="py-3 px-4 text-slate-300 max-w-xs truncate">${items}</td>
+            <td class="py-3 px-4">${methodBadge}</td>
             <td class="py-3 px-4 text-right font-black font-mono text-emerald-400">${formatRupiah(total)}</td>
             <td class="py-3 px-4 text-center no-print">
-              <button onclick="window.openTransactionModal('${inv}')" class="px-2.5 py-1 text-[11px] font-bold rounded-lg bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 transition cursor-pointer flex items-center gap-1 mx-auto whitespace-nowrap">
-                <span>🧾</span> Buka Struk
+              <button onclick="window.openTransactionModal('${inv}')" class="px-2.5 py-1 text-[11px] font-bold rounded-lg bg-sky-500/10 hover:bg-sky-500/20 text-sky-400 border border-sky-500/30 transition cursor-pointer flex items-center gap-1 mx-auto whitespace-nowrap">
+                <span>🧾</span> Nota
               </button>
             </td>
           </tr>
@@ -930,138 +1477,190 @@
       }).join('');
     }
 
-    // Modal Transaction Detail Logic
+    // Hanya menampilkan arsip yang dikirim ke database ketika tombol Tutup Toko ditekan
+    function buildConsolidatedDailyMap() {
+      const dateMap = new Map();
+      const expensesByDate = new Map();
+      getCombinedExpenses().forEach(e => {
+        const d = extractDateOnly(e);
+        if (!d) return;
+        const cur = expensesByDate.get(d) || { total: 0, notes: [] };
+        cur.total += Number(e.amount) || 0;
+        const noteText = `${e.title}${e.notes && e.notes !== '-' ? ' (' + e.notes + ')' : ''}: ${formatRupiah(e.amount)}`;
+        cur.notes.push(noteText);
+        expensesByDate.set(d, cur);
+      });
+
+      // 1. Seed strictly from /daily_reports sent upon Tutup Toko
+      dailyReports.forEach(dr => {
+        if (dr.date && /^\d{4}-\d{2}-\d{2}$/.test(dr.date)) {
+          const expObj = expensesByDate.get(dr.date) || { total: 0, notes: [] };
+          dateMap.set(dr.date, {
+            date: dr.date,
+            totalRevenue: Number(dr.grossRevenue || dr.totalRevenue) || 0,
+            totalExpenses: Number(dr.totalExpenses) || expObj.total || 0,
+            expenseNotes: dr.expenseNotes || expObj.notes.join('; ') || '-',
+            totalCash: Number(dr.totalCash || dr.actualCash) || 0,
+            totalNonCash: Number(dr.totalNonCash) || 0,
+            actualCash: Number(dr.actualCash || dr.totalCash) || 0,
+            difference: Number(dr.difference != null ? dr.difference : (dr.cashDifference || 0)),
+            totalTransactions: Number(dr.totalTransactions) || 0,
+            shiftCount: Number(dr.shiftCount) || 1,
+            cashierNames: dr.cashierNames || dr.lastShiftCashier || 'Kasir',
+            notes: dr.notes || 'Arsip dikirim saat Tutup Toko',
+            fromRtdbDaily: true
+          });
+        }
+      });
+
+      // 2. Include Tutup Toko shift reports (/shift_reports) that haven't been consolidated yet
+      const shiftMap = new Map();
+      shiftReports.forEach(s => {
+        const d = extractDateOnly(s);
+        if (!d) return;
+        const agg = shiftMap.get(d) || {
+          date: d, totalRevenue: 0, totalExpenses: 0, expenseNotes: '',
+          totalCash: 0, totalNonCash: 0, actualCash: 0, difference: 0,
+          totalTransactions: 0, shiftCount: 0, cashierNames: ''
+        };
+        const exp = Number(s.expectedCash != null ? s.expectedCash : s.totalCash) || 0;
+        const act = Number(s.actualCash != null ? s.actualCash : s.totalCash) || 0;
+        agg.totalRevenue += Number(s.totalRevenue || s.grossRevenue) || 0;
+        agg.totalExpenses = Math.max(agg.totalExpenses, Number(s.totalExpenses) || 0);
+        if (s.expenseNotes) agg.expenseNotes = s.expenseNotes;
+        agg.totalCash += act;
+        agg.totalNonCash += Number(s.totalNonCash) || 0;
+        agg.actualCash += act;
+        agg.difference += (act - exp);
+        agg.totalTransactions += Number(s.totalTransactions) || 0;
+        agg.shiftCount += 1;
+        if (s.cashierName && !agg.cashierNames.includes(s.cashierName)) {
+          agg.cashierNames = agg.cashierNames ? `${agg.cashierNames}, ${s.cashierName}` : s.cashierName;
+        }
+        shiftMap.set(d, agg);
+      });
+
+      shiftMap.forEach((agg, d) => {
+        const cur = dateMap.get(d);
+        const expObj = expensesByDate.get(d) || { total: 0, notes: [] };
+        if (!cur) {
+          dateMap.set(d, {
+            ...agg,
+            totalExpenses: agg.totalExpenses || expObj.total || 0,
+            expenseNotes: agg.expenseNotes || expObj.notes.join('; ') || '-',
+            notes: 'Dikirim saat Tutup Toko',
+            fromRtdbDaily: false
+          });
+        }
+      });
+
+      return dateMap;
+    }
+
+    // 4. Render Daily Reports Archive (Hanya Dikirim Saat Tekan Tutup Toko)
+    function renderDailyReportsView() {
+      const tbody = document.getElementById('rtdb-daily-body');
+      const badge = document.getElementById('daily-badge');
+      const tabBadge = document.getElementById('daily-tab-count-badge');
+
+      const dateMap = buildConsolidatedDailyMap();
+
+      let allDatesList = Array.from(dateMap.values()).sort((a, b) => b.date.localeCompare(a.date));
+
+      if (searchDailyKeyword) {
+        allDatesList = allDatesList.filter(item => {
+          return item.date.toLowerCase().includes(searchDailyKeyword) ||
+                 (item.cashierNames || '').toLowerCase().includes(searchDailyKeyword) ||
+                 (item.expenseNotes || '').toLowerCase().includes(searchDailyKeyword) ||
+                 (item.notes || '').toLowerCase().includes(searchDailyKeyword);
+        });
+      }
+
+      if (badge) badge.textContent = `${allDatesList.length} Arsip Tersimpan`;
+      if (tabBadge) tabBadge.textContent = `${allDatesList.length}`;
+
+      if (allDatesList.length === 0) {
+        tbody.innerHTML = `
+          <tr>
+            <td colspan="8" class="py-12 text-center text-slate-500">
+              <p class="font-bold text-slate-300">Belum ada arsip laporan yang dikirim ke database.</p>
+              <p class="text-[11px] text-slate-500 mt-0.5">Arsip laporan dikirim ke database hanya ketika kasir menekan tombol Tutup Toko.</p>
+            </td>
+          </tr>
+        `;
+        return;
+      }
+
+      tbody.innerHTML = allDatesList.map(item => {
+        const isToday = item.date === getLocalDateStr(new Date());
+
+        return `
+          <tr class="hover:bg-slate-800/40 transition ${isToday ? 'bg-orange-950/20 border-l-2 border-orange-500' : ''}">
+            <td class="py-3 px-4 font-bold text-white font-mono">
+              ${item.date}
+              ${isToday ? '<span class="ml-2 text-[9px] bg-emerald-500/20 text-emerald-400 border border-emerald-500/40 px-1.5 py-0.2 rounded font-bold uppercase">Hari Ini</span>' : ''}
+            </td>
+            <td class="py-3 px-4 text-center font-mono font-semibold text-slate-300">
+              ${item.totalTransactions} Struk &bull; ${item.shiftCount} Shift
+            </td>
+            <td class="py-3 px-4 text-right font-black font-mono text-emerald-400">${formatRupiah(item.totalRevenue)}</td>
+            <td class="py-3 px-4 text-right">
+              <div class="font-black font-mono text-rose-400">${formatRupiah(item.totalExpenses)}</div>
+              <div class="text-[10px] text-slate-400 italic truncate max-w-[180px] ml-auto" title="${item.expenseNotes || '-'}">${item.expenseNotes || '-'}</div>
+            </td>
+            <td class="py-3 px-4 text-right font-mono font-bold text-amber-400">${formatRupiah(item.actualCash)}</td>
+            <td class="py-3 px-4 text-right font-mono text-purple-400">${formatRupiah(item.totalNonCash)}</td>
+            <td class="py-3 px-4 text-slate-300 text-xs">${item.cashierNames || 'Kasir'}</td>
+            <td class="py-3 px-4 text-center no-print">
+              <button onclick="window.loadDateArchive('${item.date}')" class="px-2.5 py-1 text-[11px] font-bold rounded-lg bg-orange-600/20 hover:bg-orange-600/40 text-orange-400 border border-orange-500/40 transition cursor-pointer flex items-center gap-1 mx-auto whitespace-nowrap">
+                <span>🔍</span> Buka Arsip Tanggal
+              </button>
+            </td>
+          </tr>
+        `;
+      }).join('');
+    }
+
+    // Modal Transaction Details Logic
     window.openTransactionModal = function(invoiceNumber) {
-      const trx = transactions.find(t => (t.orderNumber === invoiceNumber || t.invoiceNumber === invoiceNumber || t.id === invoiceNumber));
+      const trx = transactions.find(t => (t.invoiceNumber || t.id) === invoiceNumber);
       if (!trx) return;
-      currentModalTrx = trx;
 
-      document.getElementById('trx-invoice-no').textContent = trx.orderNumber || trx.invoiceNumber || trx.id;
-      document.getElementById('trx-date-time').textContent = formatDate(trx.timestamp);
-      document.getElementById('trx-cashier').textContent = trx.cashierName || 'Kasir';
-      document.getElementById('trx-customer').textContent = trx.customerName || 'Pelanggan Umum';
-      
-      const typeStr = trx.orderType || 'DINE_IN';
-      const tblStr = trx.tableNumber ? ` / Meja ${trx.tableNumber}` : '';
-      document.getElementById('trx-type-table').textContent = `${typeStr}${tblStr}`;
+      document.getElementById('modal-trx-invoice').textContent = '#' + (trx.invoiceNumber || trx.id);
+      document.getElementById('modal-trx-date').textContent = formatDate(trx.timestamp || trx.date);
+      document.getElementById('modal-trx-cashier').textContent = trx.cashierName || 'Kasir';
+      document.getElementById('modal-trx-customer').textContent = trx.customerName || 'Pelanggan Umum';
+      document.getElementById('modal-trx-type').textContent = `${trx.orderType === 'DINE_IN' ? 'Makan di Tempat' : 'Bungkus'} ${trx.tableNumber ? '• Meja ' + trx.tableNumber : ''}`;
+      document.getElementById('modal-trx-method').textContent = trx.paymentMethod || 'TUNAI';
+      document.getElementById('modal-trx-grandtotal').textContent = formatRupiah(trx.totalAmount || trx.grandTotal);
 
-      // Render items container
-      const container = document.getElementById('trx-items-container');
-      const items = Array.isArray(trx.items) ? trx.items : [];
-
-      if (items.length > 0) {
-        container.innerHTML = items.map(item => `
-          <div class="flex justify-between items-start py-1 border-b border-slate-800/40">
+      const itemsContainer = document.getElementById('modal-trx-items-list');
+      if (Array.isArray(trx.items) && trx.items.length > 0) {
+        itemsContainer.innerHTML = trx.items.map(it => `
+          <div class="flex justify-between items-center py-1 border-b border-slate-800">
             <div>
-              <div class="font-bold text-white text-xs">${item.productName || 'Produk'}</div>
-              <div class="text-[10px] text-slate-400 font-mono">${item.quantity} x ${formatRupiah(item.unitPrice)}</div>
-              ${item.notes ? `<div class="text-[10px] text-amber-400/80 italic">Catatan: ${item.notes}</div>` : ''}
+              <span class="font-medium text-slate-200">${it.productName || it.name}</span>
+              <span class="text-slate-400 text-[11px] ml-1">x${it.quantity}</span>
             </div>
-            <div class="font-mono font-bold text-slate-200 text-xs">${formatRupiah(item.subtotal)}</div>
+            <span class="font-mono text-slate-300 font-semibold">${formatRupiah(it.subtotal || (it.unitPrice * it.quantity))}</span>
           </div>
         `).join('');
       } else {
-        container.innerHTML = `
-          <div class="py-2 text-slate-400 text-xs italic bg-slate-950 p-2.5 rounded-lg border border-slate-800">
-            ${trx.itemsSummary || 'Ringkasan item tidak tersedia'}
+        itemsContainer.innerHTML = `
+          <div class="py-2 text-slate-400 text-xs italic">
+            ${trx.itemsSummary || 'Rincian menu tercatat dalam rekap transaksi.'}
           </div>
         `;
       }
 
-      const subtotal = Number(trx.subtotalAmount || trx.totalAmount || trx.grandTotal) || 0;
-      const discount = Number(trx.discountAmount) || 0;
-      const tax = Number(trx.taxAmount) || 0;
-      const grandTotal = Number(trx.grandTotal || trx.totalAmount) || 0;
-      const payMethod = trx.paymentMethod || 'TUNAI';
-
-      document.getElementById('trx-subtotal').textContent = formatRupiah(subtotal);
-
-      const discountRow = document.getElementById('trx-discount-row');
-      if (discount > 0) {
-        discountRow.classList.remove('hidden');
-        document.getElementById('trx-discount').textContent = `-${formatRupiah(discount)}`;
-      } else {
-        discountRow.classList.add('hidden');
-      }
-
-      const taxRow = document.getElementById('trx-tax-row');
-      if (tax > 0) {
-        taxRow.classList.remove('hidden');
-        document.getElementById('trx-tax').textContent = formatRupiah(tax);
-      } else {
-        taxRow.classList.add('hidden');
-      }
-
-      document.getElementById('trx-grandtotal').textContent = formatRupiah(grandTotal);
-      document.getElementById('trx-pay-method').textContent = payMethod;
-
-      const cashDetails = document.getElementById('trx-cash-details');
-      if (payMethod === 'TUNAI' && (trx.cashGiven != null || trx.amountPaid != null)) {
-        cashDetails.classList.remove('hidden');
-        const given = Number(trx.cashGiven != null ? trx.cashGiven : trx.amountPaid) || 0;
-        const change = Number(trx.changeAmount) || 0;
-        document.getElementById('trx-amount-paid').textContent = formatRupiah(given);
-        document.getElementById('trx-change-amount').textContent = formatRupiah(change);
-      } else {
-        cashDetails.classList.add('hidden');
-      }
-
-      document.getElementById('modal-trx-detail').classList.remove('hidden');
+      document.getElementById('modal-trx').classList.remove('hidden');
     };
 
     document.getElementById('btn-close-trx-modal')?.addEventListener('click', () => {
-      document.getElementById('modal-trx-detail')?.classList.add('hidden');
+      document.getElementById('modal-trx')?.classList.add('hidden');
     });
     document.getElementById('btn-trx-modal-done')?.addEventListener('click', () => {
-      document.getElementById('modal-trx-detail')?.classList.add('hidden');
-    });
-
-    // Share Trx to WhatsApp
-    document.getElementById('btn-trx-wa-share')?.addEventListener('click', () => {
-      if (!currentModalTrx) return;
-      const t = currentModalTrx;
-      const inv = t.orderNumber || t.invoiceNumber || t.id;
-      const total = Number(t.grandTotal || t.totalAmount) || 0;
-      const itemsText = Array.isArray(t.items) && t.items.length > 0 
-        ? t.items.map(it => `• ${it.productName} (${it.quantity}x) = ${formatRupiah(it.subtotal)}`).join('\n')
-        : (t.itemsSummary || '-');
-
-      const text = `*🧾 STRUK PEMBELIAN ONLINE*\n` +
-                   `🏪 Toko: FOODROCK POS\n` +
-                   `📋 No: ${inv}\n` +
-                   `🕒 Waktu: ${formatDate(t.timestamp)}\n` +
-                   `👤 Pelanggan: ${t.customerName || 'Umum'}\n` +
-                   `👨‍💼 Kasir: ${t.cashierName || 'Kasir'}\n` +
-                   `━━━━━━━━━━━━━━━━━━━━\n` +
-                   `PESANAN:\n${itemsText}\n` +
-                   `━━━━━━━━━━━━━━━━━━━━\n` +
-                   `💰 Total: ${formatRupiah(total)}\n` +
-                   `💳 Pembayaran: ${t.paymentMethod || 'TUNAI'}\n` +
-                   `━━━━━━━━━━━━━━━━━━━━\n` +
-                   `Terima kasih atas kunjungan Anda!\n` +
-                   `_Disinkronkan otomatis via Firebase Realtime Database_`;
-
-      window.open(`https://api.whatsapp.com/send?text=${encodeURIComponent(text)}`, '_blank');
-    });
-
-    // Filter Listeners
-    document.getElementById('input-search-trx')?.addEventListener('input', (e) => {
-      searchKeyword = e.target.value.trim();
-      renderTrxView();
-    });
-
-    document.querySelectorAll('.filter-pay-btn').forEach(btn => {
-      btn.addEventListener('click', (e) => {
-        document.querySelectorAll('.filter-pay-btn').forEach(b => {
-          b.classList.remove('bg-orange-600', 'text-white');
-          b.classList.add('bg-slate-800', 'text-slate-400');
-        });
-        const target = e.currentTarget;
-        target.classList.remove('bg-slate-800', 'text-slate-400');
-        target.classList.add('bg-orange-600', 'text-white');
-        paymentFilter = target.getAttribute('data-filter') || 'ALL';
-        renderTrxView();
-      });
+      document.getElementById('modal-trx')?.classList.add('hidden');
     });
 
     // Modal Shift Details Logic
@@ -1085,17 +1684,18 @@
       document.getElementById('modal-expected-cash').textContent = formatRupiah(expCash);
       document.getElementById('modal-actual-cash').textContent = formatRupiah(actCash);
 
-      const diffStatus = document.getElementById('modal-diff-status');
-      if (diff === 0) {
-        diffStatus.innerHTML = `<span class="text-emerald-400">✓ Uang Kas Pas (Rp 0)</span>`;
-      } else if (diff < 0) {
-        diffStatus.innerHTML = `<span class="text-rose-400">⚠️ Selisih Kurang: -${formatRupiah(Math.abs(diff))}</span>`;
-      } else {
-        diffStatus.innerHTML = `<span class="text-blue-400">ℹ️ Selisih Lebih: +${formatRupiah(diff)}</span>`;
+      const diffVal = document.getElementById('modal-diff-val');
+      if (diffVal) {
+        if (diff === 0) {
+          diffVal.innerHTML = `<span class="text-emerald-400">✓ Pas (Rp 0)</span>`;
+        } else if (diff < 0) {
+          diffVal.innerHTML = `<span class="text-rose-400">⚠️ Kurang ${formatRupiah(Math.abs(diff))}</span>`;
+        } else {
+          diffVal.innerHTML = `<span class="text-blue-400">ℹ️ Lebih ${formatRupiah(diff)}</span>`;
+        }
       }
 
       document.getElementById('modal-shift-notes').textContent = shift.notes || 'Tidak ada catatan kasir.';
-
       document.getElementById('modal-shift').classList.remove('hidden');
     };
 
@@ -1135,28 +1735,204 @@
       window.open(`https://api.whatsapp.com/send?text=${encodeURIComponent(text)}`, '_blank');
     });
 
-    // Tab Switching
-    const btnTabShifts = document.getElementById('btn-tab-shifts');
-    const btnTabTrx = document.getElementById('btn-tab-trx');
-    const viewShifts = document.getElementById('view-shifts-section');
-    const viewTrx = document.getElementById('view-trx-section');
+    // Quick Date Archive Loader
+    window.loadDateArchive = function(dateStr) {
+      activePeriod = 'CUSTOM';
+      customSelectedDate = dateStr;
+      const dateInput = document.getElementById('input-custom-date');
+      if (dateInput) dateInput.value = dateStr;
+      highlightPeriodButton(null);
+      // Switch view to shifts tab so owner can see details of that date immediately
+      showTab('shifts');
+      renderAllViews();
+    };
 
-    btnTabShifts?.addEventListener('click', () => {
-      btnTabShifts.classList.remove('bg-slate-900', 'text-slate-400');
-      btnTabShifts.classList.add('bg-orange-600', 'text-white');
-      btnTabTrx.classList.remove('bg-orange-600', 'text-white');
-      btnTabTrx.classList.add('bg-slate-900', 'text-slate-400');
-      viewShifts.classList.remove('hidden');
-      viewTrx.classList.add('hidden');
+    function highlightPeriodButton(activeBtn) {
+      document.querySelectorAll('.period-btn').forEach(btn => {
+        btn.classList.remove('bg-orange-600', 'text-white');
+        btn.classList.add('bg-slate-800', 'text-slate-300');
+      });
+      if (activeBtn) {
+        activeBtn.classList.remove('bg-slate-800', 'text-slate-300');
+        activeBtn.classList.add('bg-orange-600', 'text-white');
+      }
+    }
+
+    // Period buttons listeners
+    document.getElementById('btn-period-today')?.addEventListener('click', (e) => {
+      activePeriod = 'TODAY';
+      customSelectedDate = '';
+      highlightPeriodButton(e.currentTarget);
+      renderAllViews();
     });
 
-    btnTabTrx?.addEventListener('click', () => {
-      btnTabTrx.classList.remove('bg-slate-900', 'text-slate-400');
-      btnTabTrx.classList.add('bg-orange-600', 'text-white');
-      btnTabShifts.classList.remove('bg-orange-600', 'text-white');
-      btnTabShifts.classList.add('bg-slate-900', 'text-slate-400');
-      viewTrx.classList.remove('hidden');
-      viewShifts.classList.add('hidden');
+    document.getElementById('btn-period-yesterday')?.addEventListener('click', (e) => {
+      activePeriod = 'YESTERDAY';
+      customSelectedDate = '';
+      highlightPeriodButton(e.currentTarget);
+      renderAllViews();
+    });
+
+    document.getElementById('btn-period-7days')?.addEventListener('click', (e) => {
+      activePeriod = '7DAYS';
+      customSelectedDate = '';
+      highlightPeriodButton(e.currentTarget);
+      renderAllViews();
+    });
+
+    document.getElementById('btn-period-month')?.addEventListener('click', (e) => {
+      activePeriod = 'MONTH';
+      customSelectedDate = '';
+      highlightPeriodButton(e.currentTarget);
+      renderAllViews();
+    });
+
+    document.getElementById('btn-period-all')?.addEventListener('click', (e) => {
+      activePeriod = 'ALL';
+      customSelectedDate = '';
+      highlightPeriodButton(e.currentTarget);
+      renderAllViews();
+    });
+
+    document.getElementById('input-custom-date')?.addEventListener('change', (e) => {
+      const val = e.target.value;
+      if (val) {
+        activePeriod = 'CUSTOM';
+        customSelectedDate = val;
+        highlightPeriodButton(null);
+        renderAllViews();
+      }
+    });
+
+    document.getElementById('btn-reset-date')?.addEventListener('click', () => {
+      activePeriod = 'TODAY';
+      customSelectedDate = '';
+      const dateInput = document.getElementById('input-custom-date');
+      if (dateInput) dateInput.value = '';
+      highlightPeriodButton(document.getElementById('btn-period-today'));
+      renderAllViews();
+    });
+
+    // Tab Switching
+    const btnTabShifts = document.getElementById('btn-tab-shifts');
+    const btnTabExpenses = document.getElementById('btn-tab-expenses');
+    const btnTabTrx = document.getElementById('btn-tab-trx');
+    const btnTabDaily = document.getElementById('btn-tab-daily');
+
+    const viewShifts = document.getElementById('view-shifts-section');
+    const viewExpenses = document.getElementById('view-expenses-section');
+    const viewTrx = document.getElementById('view-trx-section');
+    const viewDaily = document.getElementById('view-daily-section');
+
+    function showTab(tabName) {
+      [btnTabShifts, btnTabExpenses, btnTabTrx, btnTabDaily].forEach(b => {
+        b?.classList.remove('bg-orange-600', 'text-white');
+        b?.classList.add('bg-slate-900', 'text-slate-400');
+      });
+      [viewShifts, viewExpenses, viewTrx, viewDaily].forEach(v => v?.classList.add('hidden'));
+
+      if (tabName === 'shifts') {
+        btnTabShifts?.classList.remove('bg-slate-900', 'text-slate-400');
+        btnTabShifts?.classList.add('bg-orange-600', 'text-white');
+        viewShifts?.classList.remove('hidden');
+      } else if (tabName === 'expenses') {
+        btnTabExpenses?.classList.remove('bg-slate-900', 'text-slate-400');
+        btnTabExpenses?.classList.add('bg-orange-600', 'text-white');
+        viewExpenses?.classList.remove('hidden');
+      } else if (tabName === 'trx') {
+        btnTabTrx?.classList.remove('bg-slate-900', 'text-slate-400');
+        btnTabTrx?.classList.add('bg-orange-600', 'text-white');
+        viewTrx?.classList.remove('hidden');
+      } else if (tabName === 'daily') {
+        btnTabDaily?.classList.remove('bg-slate-900', 'text-slate-400');
+        btnTabDaily?.classList.add('bg-orange-600', 'text-white');
+        viewDaily?.classList.remove('hidden');
+      }
+    }
+
+    btnTabShifts?.addEventListener('click', () => showTab('shifts'));
+    btnTabExpenses?.addEventListener('click', () => showTab('expenses'));
+    btnTabTrx?.addEventListener('click', () => showTab('trx'));
+    btnTabDaily?.addEventListener('click', () => showTab('daily'));
+
+    document.getElementById('input-search-expenses')?.addEventListener('input', (e) => {
+      searchExpenseKeyword = e.target.value.toLowerCase().trim();
+      renderExpensesView();
+    });
+
+    // Search and filter for Live Transactions
+    document.getElementById('input-search-trx')?.addEventListener('input', (e) => {
+      searchKeyword = e.target.value.toLowerCase().trim();
+      renderTrxView();
+    });
+
+    document.querySelectorAll('.filter-pay-btn').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        document.querySelectorAll('.filter-pay-btn').forEach(b => {
+          b.classList.remove('bg-orange-600', 'text-white');
+          b.classList.add('bg-slate-800', 'text-slate-400');
+        });
+        const target = e.currentTarget;
+        target.classList.remove('bg-slate-800', 'text-slate-400');
+        target.classList.add('bg-orange-600', 'text-white');
+        paymentFilter = target.getAttribute('data-filter') || 'ALL';
+        renderTrxView();
+      });
+    });
+
+    // Search & Export for Daily Database Archives
+    let searchDailyKeyword = '';
+    document.getElementById('search-daily-reports')?.addEventListener('input', (e) => {
+      searchDailyKeyword = e.target.value.toLowerCase().trim();
+      renderDailyReportsView();
+    });
+
+    document.getElementById('btn-export-daily-csv')?.addEventListener('click', () => {
+      const archiveList = Array.from(buildConsolidatedDailyMap().values());
+      if (archiveList.length === 0) {
+        alert('Belum ada data arsip laporan tutup toko untuk diekspor.');
+        return;
+      }
+      const headers = ['Tanggal', 'Pendapatan Kotor', 'Total Pengeluaran', 'Catatan Pengeluaran', 'Kas Fisik di Laci', 'Non-Tunai', 'Total Transaksi', 'Shift', 'Kasir', 'Catatan'];
+      const rows = archiveList.map(d => [
+        `"${d.date}"`,
+        d.totalRevenue || 0,
+        d.totalExpenses || 0,
+        `"${(d.expenseNotes || '-').replace(/"/g, '""')}"`,
+        d.actualCash || d.totalCash || 0,
+        d.totalNonCash || 0,
+        d.totalTransactions || 0,
+        d.shiftCount || 1,
+        `"${(d.cashierNames || 'Kasir').replace(/"/g, '""')}"`,
+        `"${(d.notes || '').replace(/"/g, '""')}"`
+      ]);
+      const csv = 'data:text/csv;charset=utf-8,\uFEFF' + [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
+      const link = document.createElement('a');
+      link.setAttribute('href', encodeURI(csv));
+      link.setAttribute('download', `arsip-database-laporan-${new Date().toISOString().slice(0, 10)}.csv`);
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+    });
+
+    document.getElementById('btn-export-daily-json')?.addEventListener('click', () => {
+      const dbDump = {
+        exportedAt: new Date().toISOString(),
+        database: activeRtdb,
+        daily_reports: dailyReports,
+        shift_reports: shiftReports,
+        expenses: getCombinedExpenses(),
+        transactions: transactions
+      };
+      const blob = new Blob([JSON.stringify(dbDump, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.setAttribute('href', url);
+      link.setAttribute('download', `backup-database-hosting-${activeRtdb}-${new Date().toISOString().slice(0, 10)}.json`);
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
     });
 
     // Config Modal
@@ -1182,6 +1958,8 @@
     document.getElementById('btn-manual-refresh')?.addEventListener('click', () => {
       setupShiftListener();
       setupTransactionsListener();
+      setupDailyReportsListener();
+      setupExpensesListener();
     });
 
     // Live Clock Ticker
@@ -1192,12 +1970,58 @@
       }
     }, 1000);
 
+    // DATE CHANGE DETECTOR (checks every 5s if local date has rolled over past midnight)
+    setInterval(() => {
+      const curDate = getLocalDateStr(new Date());
+      if (curDate !== lastKnownDate) {
+        const prevDate = lastKnownDate;
+        console.log("Pergantian tanggal terdeteksi:", prevDate, "->", curDate, ". Mereset tampilan laporan hari ini ke Rp 0 (arsip dikirim saat Tutup Toko).");
+        lastKnownDate = curDate;
+
+        fetch(`${getRtdbBaseUrl()}/realtime_stats/today.json`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            todayRevenue: 0,
+            todayTransactionsCount: 0,
+            lastTransactionAmount: 0,
+            lastInvoiceNumber: '-',
+            lastItemsSummary: 'Belum ada transaksi hari ini',
+            date: curDate,
+            lastUpdated: new Date().toISOString()
+          })
+        }).catch(() => {});
+
+        // Reset tampilan ke Hari Ini (Rp 0)
+        if (activePeriod === 'TODAY' || activePeriod === 'CUSTOM') {
+          activePeriod = 'TODAY';
+          customSelectedDate = '';
+          const dateInput = document.getElementById('input-custom-date');
+          if (dateInput) dateInput.value = '';
+          highlightPeriodButton(document.getElementById('btn-period-today'));
+        }
+
+        renderAllViews();
+        fetchShiftRest();
+        fetchTrxRest();
+        fetchDailyReportsRest();
+        fetchExpensesRest();
+        fetchCashFlowsRest();
+      }
+    }, 5000);
+
     // Initial Start
     setupShiftListener();
     setupTransactionsListener();
+    setupDailyReportsListener();
+    setupExpensesListener();
+
     setInterval(() => {
       fetchShiftRest();
       fetchTrxRest();
+      fetchDailyReportsRest();
+      fetchExpensesRest();
+      fetchCashFlowsRest();
     }, 15000);
   </script>
 </body>

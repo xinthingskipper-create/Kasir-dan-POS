@@ -19,6 +19,6 @@ interface StoreProfileDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertStoreProfile(storeProfile: StoreProfile)
 
-    @Update
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun updateStoreProfile(storeProfile: StoreProfile)
 }

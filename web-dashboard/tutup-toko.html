@@ -162,13 +162,7 @@
             </p>
           </div>
 
-          <!-- Audit Status Badge (Kas Pas / Selisih) -->
-          <div id="hero-cash-audit-badge" class="pt-1">
-            <span class="inline-flex items-center gap-1.5 bg-slate-800 text-slate-400 text-xs px-3 py-1 rounded-lg border border-slate-700">
-              Menunggu data...
-            </span>
           </div>
-        </div>
 
         <!-- Right Quick Stats Grid -->
         <div class="grid grid-cols-2 sm:grid-cols-3 gap-3 w-full lg:w-auto">
@@ -222,7 +216,7 @@
     </section>
 
     <!-- 2. AGGREGATE SUMMARY METRICS (FILTERABLE) -->
-    <section class="grid grid-cols-2 md:grid-cols-4 gap-3 sm:gap-4">
+    <section class="grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4">
       
       <!-- Card 1: Total Omset -->
       <div class="bg-slate-900 border border-slate-800 rounded-2xl p-4 sm:p-5 shadow-lg">
@@ -266,20 +260,6 @@
         <div class="text-[11px] text-slate-500 mt-0.5">Transfer & QRIS langsung bank</div>
       </div>
 
-      <!-- Card 4: Audit Selisih Kas -->
-      <div class="bg-slate-900 border border-slate-800 rounded-2xl p-4 sm:p-5 shadow-lg">
-        <div class="flex items-center justify-between">
-          <span class="text-xs font-semibold text-slate-400">Audit Selisih Kasir</span>
-          <span class="p-2 rounded-xl bg-rose-500/10 text-rose-400">
-            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/>
-            </svg>
-          </span>
-        </div>
-        <div id="metric-total-diff" class="text-lg sm:text-2xl font-black font-mono text-slate-200 mt-2">Rp 0</div>
-        <div id="metric-diff-sub" class="text-[11px] text-slate-500 mt-0.5">Semua kas seimbang</div>
-      </div>
-
     </section>
 
     <!-- 3. VISUAL CHART: TREN OMSET & KAS PER SHIFT -->
@@ -319,25 +299,16 @@
           
           <!-- Period Preset Filter -->
           <select id="filter-period" class="bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-slate-200 focus:outline-none focus:border-orange-500 cursor-pointer">
-            <option value="ALL">Semua Periode</option>
-            <option value="TODAY">Hari Ini</option>
+            <option value="TODAY" selected>⚡ Hari Ini (Reset ke 0 saat tanggal ganti)</option>
             <option value="YESTERDAY">Kemarin</option>
             <option value="LAST_7_DAYS">7 Hari Terakhir</option>
             <option value="THIS_MONTH">Bulan Ini</option>
+            <option value="ALL">Semua Periode</option>
           </select>
 
           <!-- Cashier Filter -->
           <select id="filter-cashier" class="bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-slate-200 focus:outline-none focus:border-orange-500 cursor-pointer">
             <option value="ALL">Semua Kasir</option>
-          </select>
-
-          <!-- Difference Filter -->
-          <select id="filter-diff" class="bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-slate-200 focus:outline-none focus:border-orange-500 cursor-pointer">
-            <option value="ALL">Semua Status Kas</option>
-            <option value="EXACT">✓ Kas Pas Saja (Rp 0)</option>
-            <option value="SHORT">⚠️ Selisih Kurang (Minus)</option>
-            <option value="OVER">ℹ️ Selisih Lebih (Plus)</option>
-            <option value="ANY_DIFF">Ada Selisih (Kurang/Lebih)</option>
           </select>
 
           <!-- Export CSV Button -->
@@ -381,7 +352,6 @@
               <th class="py-3 px-4 text-right">Total Omset</th>
               <th class="py-3 px-4 text-right">Kas Sistem</th>
               <th class="py-3 px-4 text-right">Kas Fisik</th>
-              <th class="py-3 px-4 text-center">Status Kas</th>
               <th class="py-3 px-4 text-right">Non-Tunai</th>
               <th class="py-3 px-4">Catatan Kasir</th>
               <th class="py-3 px-4 text-center no-print">Aksi</th>
@@ -408,8 +378,8 @@
     <section class="bg-slate-900 border border-slate-800 rounded-2xl p-4 sm:p-5 shadow-xl space-y-4">
       <div class="flex items-center justify-between gap-3 flex-wrap">
         <div>
-          <h3 class="text-base font-extrabold text-white">Rekapitulasi Harian Kas & Penjualan</h3>
-          <p class="text-xs text-slate-400">Akumulasi audit dari node <code class="text-orange-400 font-mono">/daily_reports</code> Realtime Database</p>
+          <h3 class="text-base font-extrabold text-white flex items-center gap-2"><span>🗄️</span> Penyimpanan Database Arsip Laporan di Cloud Hosting</h3>
+          <p class="text-xs text-slate-400">Akumulasi audit tersimpan permanen di cloud hosting node <code class="text-orange-400 font-mono">/daily_reports</code> Realtime Database</p>
         </div>
         <span id="daily-count-badge" class="bg-slate-800 text-slate-300 text-xs font-bold px-2.5 py-1 rounded-lg">
           0 Hari Tercatat
@@ -426,7 +396,6 @@
               <th class="py-3 px-4 text-right">Omset Harian</th>
               <th class="py-3 px-4 text-right">Kas Fisik Disetor</th>
               <th class="py-3 px-4 text-right">Kas Menurut Sistem</th>
-              <th class="py-3 px-4 text-center">Selisih Kas</th>
               <th class="py-3 px-4 text-right">Total Non-Tunai</th>
               <th class="py-3 px-4">Kasir Terakhir</th>
             </tr>
@@ -521,18 +490,14 @@
 
           <!-- Cash Drawer Audit -->
           <div class="text-[11px] space-y-1 text-slate-800">
-            <div class="font-bold text-black uppercase tracking-wider text-[10px]">REKONSILIASI KAS LACI:</div>
-            <div class="flex justify-between">
-              <span>Kas Seharusnya (Sistem):</span>
-              <span id="rcpt-expected-cash" class="font-bold text-black">Rp 0</span>
-            </div>
+            <div class="font-bold text-black uppercase tracking-wider text-[10px]">PENERIMAAN KAS LACI:</div>
             <div class="flex justify-between font-bold text-black">
-              <span>Kas Nyata Fisik (Dihitung):</span>
+              <span>Uang Fisik Kas Laci:</span>
               <span id="rcpt-actual-cash">Rp 0</span>
             </div>
-            <div class="flex justify-between items-center pt-1 border-t border-slate-300">
-              <span class="font-bold">STATUS SELISIH:</span>
-              <span id="rcpt-diff-badge" class="font-bold text-xs">Rp 0</span>
+            <div class="flex justify-between text-slate-600">
+              <span>Kas Menurut Sistem:</span>
+              <span id="rcpt-expected-cash">Rp 0</span>
             </div>
           </div>
 
@@ -795,13 +760,15 @@
         // Process Daily Reports
         dailyReports = [];
         if (rawDaily && typeof rawDaily === 'object') {
-          dailyReports = Object.keys(rawDaily).map(key => {
-            const val = rawDaily[key];
-            if (typeof val === 'string') {
-              try { return { date: key, ...JSON.parse(val) }; } catch (e) { return { date: key }; }
-            }
-            return { date: key, ...val };
-          });
+          dailyReports = Object.keys(rawDaily)
+            .filter(key => /^\d{4}-\d{2}-\d{2}$/.test(key))
+            .map(key => {
+              const val = rawDaily[key];
+              if (typeof val === 'string') {
+                try { return { date: key, ...JSON.parse(val) }; } catch (e) { return { date: key }; }
+              }
+              return { date: (val && val.date) ? String(val.date).slice(0, 10) : key, ...val };
+            });
           dailyReports.sort((a, b) => (b.date || '').localeCompare(a.date || ''));
         }
 
@@ -835,7 +802,34 @@
       }
     }
 
-    // Render Hero Latest Closing
+    function getLocalDateStr(d = new Date()) {
+      const year = d.getFullYear();
+      const month = String(d.getMonth() + 1).padStart(2, '0');
+      const day = String(d.getDate()).padStart(2, '0');
+      return `${year}-${month}-${day}`;
+    }
+
+    function extractShiftDateStr(s) {
+      if (!s || typeof s !== 'object') return '';
+      if (s.date && /^\d{4}-\d{2}-\d{2}/.test(String(s.date))) {
+        return String(s.date).slice(0, 10);
+      }
+      if (s.closingTime) {
+        const d = new Date(Number(s.closingTime));
+        if (!isNaN(d.getTime())) return getLocalDateStr(d);
+      }
+      const raw = String(s.timestamp || s.endTime || '');
+      if (/^\d{4}-\d{2}-\d{2}/.test(raw)) {
+        if (raw.length > 10 && /([Zz]|[+-]\d{2}:?\d{2})$/.test(raw)) {
+          const parsed = new Date(raw);
+          if (!isNaN(parsed.getTime())) return getLocalDateStr(parsed);
+        }
+        return raw.slice(0, 10);
+      }
+      return '';
+    }
+
+    // Render Hero Latest Closing (scoped to active period so TODAY resets to Rp 0 on new date!)
     function renderHeroClosing() {
       const elId = document.getElementById('hero-shift-id');
       const elTime = document.getElementById('hero-shift-time');
@@ -849,14 +843,28 @@
       const elNoncash = document.getElementById('hero-stat-noncash');
       const elTotalNote = document.getElementById('hero-total-shifts-note');
 
-      if (elTotalNote) elTotalNote.textContent = `${shiftReports.length} laporan tutup kasir tersimpan`;
+      const periodVal = document.getElementById('filter-period')?.value || 'TODAY';
+      const todayStr = getLocalDateStr(new Date());
+      const yesterday = new Date();
+      yesterday.setDate(yesterday.getDate() - 1);
+      const yestStr = getLocalDateStr(yesterday);
 
-      if (shiftReports.length === 0) {
-        elId.textContent = 'Belum Ada Laporan Tutup Toko';
-        elTime.textContent = 'Menunggu data...';
+      const scopedShifts = shiftReports.filter(s => {
+        const sDate = extractShiftDateStr(s);
+        if (!sDate) return false;
+        if (periodVal === 'TODAY') return sDate === todayStr;
+        if (periodVal === 'YESTERDAY') return sDate === yestStr;
+        return true;
+      });
+
+      if (elTotalNote) elTotalNote.textContent = `${scopedShifts.length} laporan tutup kasir (${periodVal === 'TODAY' ? todayStr : periodVal}) • ${shiftReports.length} total arsip`;
+
+      if (scopedShifts.length === 0) {
+        elId.textContent = periodVal === 'TODAY' ? `Belum Ada Tutup Kasir Hari Ini` : 'Belum Ada Laporan Tutup Toko';
+        elTime.textContent = `Tanggal: ${periodVal === 'YESTERDAY' ? yestStr : todayStr}`;
         elCashier.textContent = 'Kasir: -';
-        elNotes.textContent = 'Belum ada data shift di node /shift_reports pada Realtime Database ini.';
-        elAudit.innerHTML = `<span class="inline-flex items-center gap-1.5 bg-slate-800 text-slate-400 text-xs px-3 py-1 rounded-lg border border-slate-700">Belum ada data</span>`;
+        elNotes.textContent = 'Saat pergantian tanggal baru, laporan hari ini dimulai dari nol (Rp 0) hingga ada tutup kasir.';
+        elAudit.innerHTML = `<span class="inline-flex items-center gap-1.5 bg-slate-800 text-slate-400 text-xs px-3 py-1 rounded-lg border border-slate-700">Mulai Rp 0 (${todayStr})</span>`;
         elRev.textContent = 'Rp 0';
         elTrx.textContent = '0 Transaksi';
         elActCash.textContent = 'Rp 0';
@@ -866,7 +874,7 @@
         return;
       }
 
-      latestClosing = shiftReports[0];
+      latestClosing = scopedShifts[0];
       const s = latestClosing;
       const shiftDoc = s.shiftNumber || s.id;
       const cashier = s.cashierName || 'Kasir';
@@ -888,26 +896,7 @@
       elExpCash.textContent = `Sistem: ${formatRupiah(expCash)}`;
       elNoncash.textContent = formatRupiah(nonCash);
 
-      // Audit status badge
-      if (diff === 0) {
-        elAudit.innerHTML = `
-          <span class="inline-flex items-center gap-1.5 bg-emerald-500/20 text-emerald-400 border border-emerald-500/40 text-xs font-bold px-3 py-1 rounded-lg">
-            ✓ UANG KAS SEIMBANG / PAS (Rp 0)
-          </span>
-        `;
-      } else if (diff < 0) {
-        elAudit.innerHTML = `
-          <span class="inline-flex items-center gap-1.5 bg-rose-500/20 text-rose-400 border border-rose-500/40 text-xs font-mono font-bold px-3 py-1 rounded-lg">
-            ⚠️ SELISIH KURANG: -${formatRupiah(Math.abs(diff))} (Uang fisik kurang dari sistem)
-          </span>
-        `;
-      } else {
-        elAudit.innerHTML = `
-          <span class="inline-flex items-center gap-1.5 bg-blue-500/20 text-blue-400 border border-blue-500/40 text-xs font-mono font-bold px-3 py-1 rounded-lg">
-            ℹ️ SELISIH LEBIH: +${formatRupiah(diff)} (Uang fisik lebih banyak dari sistem)
-          </span>
-        `;
-      }
+      // Render hero stats complete
     }
 
     // Populate Cashier Dropdown
@@ -936,40 +925,39 @@
     // Render Filtered Shift Table & Metrics
     function renderFilteredShifts() {
       const searchVal = (document.getElementById('search-shifts')?.value || '').toLowerCase().trim();
-      const periodVal = document.getElementById('filter-period')?.value || 'ALL';
+      const periodVal = document.getElementById('filter-period')?.value || 'TODAY';
       const cashierVal = document.getElementById('filter-cashier')?.value || 'ALL';
       const diffVal = document.getElementById('filter-diff')?.value || 'ALL';
 
+      const getLocalDateStr = (d) => {
+        const year = d.getFullYear();
+        const month = String(d.getMonth() + 1).padStart(2, '0');
+        const day = String(d.getDate()).padStart(2, '0');
+        return `${year}-${month}-${day}`;
+      };
+
       const now = new Date();
-      const todayStr = now.toISOString().slice(0, 10);
+      const todayStr = getLocalDateStr(now);
       const yesterday = new Date(now);
       yesterday.setDate(now.getDate() - 1);
-      const yestStr = yesterday.toISOString().slice(0, 10);
-      const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
-      const thisMonthPrefix = now.toISOString().slice(0, 7);
+      const yestStr = getLocalDateStr(yesterday);
+      const sevenDaysAgo = new Date(now);
+      sevenDaysAgo.setDate(now.getDate() - 6);
+      const sevenDaysAgoStr = getLocalDateStr(sevenDaysAgo);
+      const thisMonthPrefix = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
 
       const filtered = shiftReports.filter(s => {
         // Date / Period filter
-        const sDate = s.date || (s.timestamp ? s.timestamp.slice(0, 10) : '');
-        const sTime = s.closingTime || (s.timestamp ? new Date(s.timestamp).getTime() : 0);
+        const sDate = extractShiftDateStr(s);
+        if (!sDate) return false;
 
         if (periodVal === 'TODAY' && sDate !== todayStr) return false;
         if (periodVal === 'YESTERDAY' && sDate !== yestStr) return false;
-        if (periodVal === 'LAST_7_DAYS' && sTime < sevenDaysAgo.getTime()) return false;
+        if (periodVal === 'LAST_7_DAYS' && (sDate < sevenDaysAgoStr || sDate > todayStr)) return false;
         if (periodVal === 'THIS_MONTH' && !sDate.startsWith(thisMonthPrefix)) return false;
 
         // Cashier filter
         if (cashierVal !== 'ALL' && s.cashierName !== cashierVal) return false;
-
-        // Diff status filter
-        const expCash = Number(s.expectedCash != null ? s.expectedCash : s.totalCash) || 0;
-        const actCash = Number(s.actualCash != null ? s.actualCash : s.totalCash) || 0;
-        const diff = Number(s.difference != null ? s.difference : (actCash - expCash));
-
-        if (diffVal === 'EXACT' && diff !== 0) return false;
-        if (diffVal === 'SHORT' && diff >= 0) return false;
-        if (diffVal === 'OVER' && diff <= 0) return false;
-        if (diffVal === 'ANY_DIFF' && diff === 0) return false;
 
         // Search text
         if (searchVal) {
@@ -1008,20 +996,6 @@
       document.getElementById('metric-rev-sub').textContent = `Dari ${filtered.length} laporan shift`;
       document.getElementById('metric-total-cash').textContent = formatRupiah(totalActCash);
       document.getElementById('metric-total-noncash').textContent = formatRupiah(totalNonCash);
-
-      const elMetricDiff = document.getElementById('metric-total-diff');
-      const elDiffSub = document.getElementById('metric-diff-sub');
-      elMetricDiff.textContent = formatRupiah(totalDiff);
-      if (totalDiff === 0) {
-        elMetricDiff.className = 'text-lg sm:text-2xl font-black font-mono text-emerald-400 mt-2';
-        elDiffSub.textContent = 'Semua kas laci seimbang';
-      } else if (totalDiff < 0) {
-        elMetricDiff.className = 'text-lg sm:text-2xl font-black font-mono text-rose-400 mt-2';
-        elDiffSub.textContent = `⚠️ Selisih kurang: -${formatRupiah(Math.abs(totalDiff))}`;
-      } else {
-        elMetricDiff.className = 'text-lg sm:text-2xl font-black font-mono text-blue-400 mt-2';
-        elDiffSub.textContent = `ℹ️ Selisih lebih: +${formatRupiah(totalDiff)}`;
-      }
 
       // Update Table Badge
       const badge = document.getElementById('shifts-count-badge');
@@ -1081,9 +1055,6 @@
             <td class="py-3 px-4 text-right font-mono font-bold text-amber-400 whitespace-nowrap">
               ${formatRupiah(actCash)}
             </td>
-            <td class="py-3 px-4 text-center whitespace-nowrap">
-              ${diffBadge}
-            </td>
             <td class="py-3 px-4 text-right font-mono text-purple-400 whitespace-nowrap">
               ${formatRupiah(nonCash)}
             </td>
@@ -1141,7 +1112,6 @@
             <td class="py-3 px-4 text-right font-mono font-bold text-emerald-400 whitespace-nowrap">${formatRupiah(rev)}</td>
             <td class="py-3 px-4 text-right font-mono font-bold text-amber-400 whitespace-nowrap">${formatRupiah(act)}</td>
             <td class="py-3 px-4 text-right font-mono text-slate-400 whitespace-nowrap">${formatRupiah(exp)}</td>
-            <td class="py-3 px-4 text-center whitespace-nowrap">${diffBadge}</td>
             <td class="py-3 px-4 text-right font-mono text-purple-400 whitespace-nowrap">${formatRupiah(non)}</td>
             <td class="py-3 px-4 text-slate-300 whitespace-nowrap">${d.lastShiftCashier || d.cashierNames || 'Kasir'}</td>
           </tr>
@@ -1289,10 +1259,6 @@
       const trx = Number(shift.totalTransactions) || 0;
       const store = storeProfile.storeName || 'FOODROCK POS';
 
-      let diffStatus = '✓ KAS PAS (Rp 0)';
-      if (diff < 0) diffStatus = `⚠️ SELISIH KURANG: -${formatRupiah(Math.abs(diff))}`;
-      if (diff > 0) diffStatus = `ℹ️ SELISIH LEBIH: +${formatRupiah(diff)}`;
-
       const text = `*📊 LAPORAN TUTUP KASIR & TOKO*\n` +
                    `🏪 Toko: *${store}*\n` +
                    `📋 ID Shift: ${docId}\n` +
@@ -1301,13 +1267,9 @@
                    `🧾 Total Transaksi: ${trx} Struk\n` +
                    `━━━━━━━━━━━━━━━━━━━━\n` +
                    `💰 *TOTAL OMSET: ${formatRupiah(rev)}*\n` +
+                   `• Kas Fisik di Laci: ${formatRupiah(actCash)}\n` +
                    `• Pembayaran Tunai: ${formatRupiah(shift.totalCash || 0)}\n` +
                    `• Non-Tunai (QRIS/EDC): ${formatRupiah(nonCash)}\n` +
-                   `━━━━━━━━━━━━━━━━━━━━\n` +
-                   `💵 *REKONSILIASI KAS LACI:*\n` +
-                   `• Kas Menurut Sistem: ${formatRupiah(expCash)}\n` +
-                   `• Kas Fisik Dihitung: ${formatRupiah(actCash)}\n` +
-                   `• *Status Kas: ${diffStatus}*\n` +
                    `━━━━━━━━━━━━━━━━━━━━\n` +
                    `📝 Catatan: ${shift.notes || '-'}\n\n` +
                    `_Disinkronkan otomatis via Firebase Realtime Database_`;
@@ -1322,16 +1284,15 @@
         return;
       }
 
-      const headers = ['ID Shift', 'Waktu Tutup', 'Kasir', 'Total Transaksi', 'Total Omset', 'Kas Sistem', 'Kas Fisik', 'Selisih', 'Non-Tunai', 'Catatan'];
+      const headers = ['ID Shift', 'Waktu Tutup', 'Kasir', 'Total Transaksi', 'Total Omset', 'Kas Fisik', 'Kas Sistem', 'Non-Tunai', 'Catatan'];
       const rows = shiftReports.map(s => [
         `"${s.shiftNumber || s.id}"`,
         `"${formatDate(s.timestamp || s.endTime || s.closingTime)}"`,
         `"${s.cashierName || 'Kasir'}"`,
         s.totalTransactions || 0,
         s.totalRevenue || 0,
-        s.expectedCash || 0,
         s.actualCash || 0,
-        s.difference || 0,
+        s.expectedCash || 0,
         s.totalNonCash || 0,
         `"${(s.notes || '').replace(/"/g, '""')}"`
       ]);
@@ -1361,7 +1322,10 @@
 
       // Filter events
       document.getElementById('search-shifts')?.addEventListener('input', renderFilteredShifts);
-      document.getElementById('filter-period')?.addEventListener('change', renderFilteredShifts);
+      document.getElementById('filter-period')?.addEventListener('change', () => {
+        renderHeroClosing();
+        renderFilteredShifts();
+      });
       document.getElementById('filter-cashier')?.addEventListener('change', renderFilteredShifts);
       document.getElementById('filter-diff')?.addEventListener('change', renderFilteredShifts);
       document.getElementById('btn-export-csv')?.addEventListener('click', exportToCsv);
@@ -1421,6 +1385,21 @@
           loadData();
         }
       }, 1000);
+
+      // Date Rollover Watcher (Checks every 5 seconds if midnight passed -> immediate reset to zero!)
+      let lastKnownDateStr = getLocalDateStr(new Date());
+      setInterval(() => {
+        const currentDateStr = getLocalDateStr(new Date());
+        if (currentDateStr !== lastKnownDateStr) {
+          lastKnownDateStr = currentDateStr;
+          console.log('[DateRollover] Tanggal berganti menjadi: ' + currentDateStr + '. Mereset laporan hari ini ke Rp 0.');
+          renderHeroClosing();
+          renderFilteredShifts();
+          renderDailyTable();
+          renderChart();
+          loadData();
+        }
+      }, 5000);
 
       // Initial Load
       loadData();

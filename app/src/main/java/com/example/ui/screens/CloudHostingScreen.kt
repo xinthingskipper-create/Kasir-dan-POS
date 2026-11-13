@@ -82,11 +82,16 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.bluetooth.BluetoothPrinterManager
+import com.example.data.model.DailyReport
+import com.example.data.model.Transaction
+import androidx.compose.ui.draw.scale
 import com.example.data.model.CloudHostingConfig
 import com.example.ui.PosViewModel
 
 enum class CloudCategoryTab(val label: String, val icon: ImageVector) {
     SEMUA("Semua", Icons.Default.GridView),
+    DATABASE_ARCHIVE("Penyimpanan & Arsip Laporan", Icons.Default.Storage),
     SOURCE_CODE("Source Code & Panduan Web", Icons.Default.Code),
     FIREBASE("Firebase Hosting & DB", Icons.Default.LocalFireDepartment),
     LAN("Web UI Komputer (LAN)", Icons.Default.Computer),
@@ -94,6 +99,7 @@ enum class CloudCategoryTab(val label: String, val icon: ImageVector) {
 }
 
 enum class SourceCodeSubTab(val label: String, val fileName: String, val badge: String) {
+    ONLINE_REPORT_RTDB("Laporan Online Chrome (RTDB)", "laporan-online-rtdb.html", "Chrome RTDB"),
     TUTUP_TOKO_WEB("Web Tutup Toko (RTDB Only)", "tutup-toko.html", "Tutup Toko"),
     RTDB_WEB("Web Laporan RTDB Live", "rtdb-laporan.html", "Web RTDB"),
     RTDB_RULES("Rules Realtime DB (Foto)", "database.rules.json", "RTDB Rules"),
@@ -117,8 +123,17 @@ fun CloudHostingScreen(
     val clipboardManager = LocalClipboardManager.current
     val roomConfig by viewModel.cloudHostingConfig.collectAsState()
     val isSyncing by viewModel.isCloudSyncing.collectAsState()
+    val allDailyReports by viewModel.allDailyReports.collectAsState()
+    val isGeneratingReport by viewModel.isGeneratingReport.collectAsState()
+    val isAutoSyncActive by viewModel.isAutoSyncActive.collectAsState()
+    val transactions by viewModel.reportTransactions.collectAsState()
+    val storeProfile by viewModel.storeProfile.collectAsState()
+    val unsyncedCount = transactions.count { !it.isSynced }
+    val syncedCount = transactions.count { it.isSynced }
+    var searchReportDate by remember { mutableStateOf("") }
+    var selectedDailyReportForDetail by remember { mutableStateOf<com.example.data.model.DailyReport?>(null) }
 
-    var selectedTab by remember { mutableStateOf(CloudCategoryTab.SOURCE_CODE) }
+    var selectedTab by remember { mutableStateOf(CloudCategoryTab.DATABASE_ARCHIVE) }
     var selectedSourceCodeSubTab by remember { mutableStateOf(SourceCodeSubTab.RTDB_RULES) }
 
     // State input yang terikat ke entitas Room
@@ -304,6 +319,214 @@ fun CloudHostingScreen(
                             }
                         }
                     }
+                }
+            }
+
+            // --- Section: Penyimpanan Database & Arsip Laporan Hosting ---
+            if (selectedTab == CloudCategoryTab.DATABASE_ARCHIVE || selectedTab == CloudCategoryTab.SEMUA) {
+                item {
+                    Card(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("card_database_archive_hosting"),
+                        shape = RoundedCornerShape(16.dp),
+                        colors = CardDefaults.cardColors(containerColor = cardDark),
+                        border = BorderStroke(1.5.dp, cardBorder)
+                    ) {
+                        Column(modifier = Modifier.padding(16.dp)) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
+                                    Surface(
+                                        shape = RoundedCornerShape(10.dp),
+                                        color = Color(0xFF1E3A8A),
+                                        modifier = Modifier.size(34.dp)
+                                    ) {
+                                        Box(contentAlignment = Alignment.Center) {
+                                            Icon(
+                                                imageVector = Icons.Default.Storage,
+                                                contentDescription = null,
+                                                tint = Color(0xFF60A5FA),
+                                                modifier = Modifier.size(20.dp)
+                                            )
+                                        }
+                                    }
+                                    Spacer(modifier = Modifier.width(10.dp))
+                                    Column {
+                                        Text(
+                                            text = "Penyimpanan Database & Arsip Laporan",
+                                            fontSize = 13.5.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = textWhite
+                                        )
+                                        Text(
+                                            text = "Sinkronisasi Room SQLite & Firebase Realtime Database",
+                                            fontSize = 11.sp,
+                                            color = textGray
+                                        )
+                                    }
+                                }
+
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Text(
+                                        text = if (isAutoSyncActive) "Auto ON" else "Auto OFF",
+                                        fontSize = 10.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = if (isAutoSyncActive) Color(0xFF10B981) else textGray
+                                    )
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Switch(
+                                        checked = isAutoSyncActive,
+                                        onCheckedChange = { viewModel.toggleAutoSync(it) }
+                                    )
+                                }
+                            }
+
+                            Spacer(modifier = Modifier.height(12.dp))
+
+                            // Counter stats row
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                Surface(
+                                    modifier = Modifier.weight(1f),
+                                    shape = RoundedCornerShape(10.dp),
+                                    color = innerDark,
+                                    border = BorderStroke(1.dp, Color(0xFF263045))
+                                ) {
+                                    Column(modifier = Modifier.padding(10.dp)) {
+                                        Text(text = "💾 Room DB Lokal", fontSize = 10.sp, color = textGray)
+                                        Text(text = "${transactions.size} Transaksi", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = textWhite)
+                                    }
+                                }
+
+                                Surface(
+                                    modifier = Modifier.weight(1f),
+                                    shape = RoundedCornerShape(10.dp),
+                                    color = Color(0xFF064E3B).copy(alpha = 0.5f),
+                                    border = BorderStroke(1.dp, Color(0xFF059669))
+                                ) {
+                                    Column(modifier = Modifier.padding(10.dp)) {
+                                        Text(text = "🟢 Tersinkron Cloud", fontSize = 10.sp, color = Color(0xFF34D399))
+                                        Text(text = "$syncedCount Transaksi", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = Color(0xFFA7F3D0))
+                                    }
+                                }
+
+                                Surface(
+                                    modifier = Modifier.weight(1f),
+                                    shape = RoundedCornerShape(10.dp),
+                                    color = if (unsyncedCount > 0) Color(0xFF78350F).copy(alpha = 0.5f) else innerDark,
+                                    border = BorderStroke(1.dp, if (unsyncedCount > 0) Color(0xFFD97706) else Color(0xFF263045))
+                                ) {
+                                    Column(modifier = Modifier.padding(10.dp)) {
+                                        Text(text = "🟠 Tertunda", fontSize = 10.sp, color = if (unsyncedCount > 0) Color(0xFFFBBF24) else textGray)
+                                        Text(text = "$unsyncedCount Transaksi", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = if (unsyncedCount > 0) Color(0xFFFDE68A) else textWhite)
+                                    }
+                                }
+                            }
+
+                            Spacer(modifier = Modifier.height(12.dp))
+
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                Button(
+                                    onClick = {
+                                        viewModel.testCloudConnection { ok, msg ->
+                                            Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
+                                        }
+                                    },
+                                    enabled = !isSyncing,
+                                    modifier = Modifier.weight(1f).height(40.dp),
+                                    shape = RoundedCornerShape(8.dp),
+                                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0284C7))
+                                ) {
+                                    Icon(Icons.Default.Cloud, contentDescription = null, modifier = Modifier.size(15.dp))
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text("Cek Koneksi", fontSize = 11.5.sp, fontWeight = FontWeight.SemiBold)
+                                }
+
+                                Button(
+                                    onClick = {
+                                        viewModel.syncPendingTransactions { success, msg ->
+                                            Toast.makeText(context, msg ?: "Sinkron selesai", Toast.LENGTH_SHORT).show()
+                                        }
+                                    },
+                                    enabled = !isSyncing,
+                                    modifier = Modifier.weight(1.3f).height(40.dp),
+                                    shape = RoundedCornerShape(8.dp),
+                                    colors = ButtonDefaults.buttonColors(containerColor = if (unsyncedCount > 0) flameOrange else Color(0xFF1E293B))
+                                ) {
+                                    Icon(Icons.Default.Sync, contentDescription = null, modifier = Modifier.size(15.dp))
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text(
+                                        text = if (isSyncing) "Menyinkronkan..." else if (unsyncedCount > 0) "Sinkronkan ($unsyncedCount)" else "Sinkronkan Semua",
+                                        fontSize = 11.5.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
+                            }
+
+                            Spacer(modifier = Modifier.height(8.dp))
+
+                            // Action to open web online Chrome for database archives
+                            val separator = if (ownerHostingUrl.contains("?")) "&" else "?"
+                            val fullWebUrl = "$ownerHostingUrl${separator}projectId=$ownerProjectId&databaseId=$ownerDatabaseId"
+                            Button(
+                                onClick = {
+                                    try {
+                                        context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(fullWebUrl)))
+                                    } catch (e: Exception) {
+                                        clipboardManager.setText(AnnotatedString(fullWebUrl))
+                                        Toast.makeText(context, "URL disalin: $fullWebUrl", Toast.LENGTH_LONG).show()
+                                    }
+                                },
+                                modifier = Modifier.fillMaxWidth().height(42.dp),
+                                shape = RoundedCornerShape(8.dp),
+                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFEA580C))
+                            ) {
+                                Icon(Icons.Default.OpenInBrowser, contentDescription = null, modifier = Modifier.size(16.dp))
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text("Buka Arsip Database di Web Online Chrome", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                            }
+                        }
+                    }
+                }
+
+                item {
+                    RoomDailyReportArchiveCard(
+                        reports = allDailyReports,
+                        isGenerating = isGeneratingReport,
+                        searchQuery = searchReportDate,
+                        onSearchChange = { searchReportDate = it },
+                        onGenerateToday = {
+                            viewModel.generateOrRefreshTodayReport { success, msg ->
+                                Toast.makeText(context, msg, if (success) Toast.LENGTH_SHORT else Toast.LENGTH_LONG).show()
+                            }
+                        },
+                        onViewDetail = { report ->
+                            selectedDailyReportForDetail = report
+                        },
+                        onShareWhatsApp = { report ->
+                            val text = BluetoothPrinterManager.generateDailyReportPlainText(storeProfile, report)
+                            try {
+                                val uri = Uri.parse("https://api.whatsapp.com/send?text=" + java.net.URLEncoder.encode(text, "UTF-8"))
+                                context.startActivity(Intent(Intent.ACTION_VIEW, uri))
+                            } catch (e: Exception) {
+                                Toast.makeText(context, "WhatsApp tidak terinstall", Toast.LENGTH_SHORT).show()
+                            }
+                        },
+                        onDelete = { report ->
+                            viewModel.deleteDailyReport(report) { success ->
+                                if (success) Toast.makeText(context, "Laporan ${report.date} dihapus dari Room", Toast.LENGTH_SHORT).show()
+                            }
+                        }
+                    )
                 }
             }
 
@@ -1133,6 +1356,26 @@ fun CloudHostingScreen(
             }
         }
     }
+
+    if (selectedDailyReportForDetail != null) {
+        DailyReportDetailDialog(
+            report = selectedDailyReportForDetail!!,
+            storeProfile = storeProfile,
+            onDismiss = { selectedDailyReportForDetail = null },
+            onPrint = {
+                viewModel.printDailyReport(selectedDailyReportForDetail!!)
+            },
+            onShareWhatsApp = {
+                val text = com.example.bluetooth.BluetoothPrinterManager.generateDailyReportPlainText(storeProfile, selectedDailyReportForDetail!!)
+                try {
+                    val uri = Uri.parse("https://api.whatsapp.com/send?text=" + java.net.URLEncoder.encode(text, "UTF-8"))
+                    context.startActivity(Intent(Intent.ACTION_VIEW, uri))
+                } catch (e: Exception) {
+                    Toast.makeText(context, "WhatsApp tidak terinstall", Toast.LENGTH_SHORT).show()
+                }
+            }
+        )
+    }
 }
 
 /**
@@ -1158,6 +1401,7 @@ fun SourceCodeViewerCard(
     val clipboardManager = LocalClipboardManager.current
 
     val codeContent = when (selectedSubTab) {
+        SourceCodeSubTab.ONLINE_REPORT_RTDB -> SourceCodeTemplates.ONLINE_REPORT_RTDB_HTML
         SourceCodeSubTab.TUTUP_TOKO_WEB -> SourceCodeTemplates.TUTUP_TOKO_HTML
         SourceCodeSubTab.RTDB_WEB -> SourceCodeTemplates.RTDB_LAPORAN_HTML
         SourceCodeSubTab.RTDB_RULES -> SourceCodeTemplates.REALTIME_DATABASE_RULES
@@ -1304,15 +1548,16 @@ fun SourceCodeViewerCard(
                             }
 
                             // Preview Button for HTML portals
-                            if (selectedSubTab == SourceCodeSubTab.TUTUP_TOKO_WEB || selectedSubTab == SourceCodeSubTab.RTDB_WEB || selectedSubTab == SourceCodeSubTab.OWNER_PORTAL || selectedSubTab == SourceCodeSubTab.CUSTOMER_WEB) {
+                            if (selectedSubTab == SourceCodeSubTab.ONLINE_REPORT_RTDB || selectedSubTab == SourceCodeSubTab.TUTUP_TOKO_WEB || selectedSubTab == SourceCodeSubTab.RTDB_WEB || selectedSubTab == SourceCodeSubTab.OWNER_PORTAL || selectedSubTab == SourceCodeSubTab.CUSTOMER_WEB) {
                                 Button(
                                     onClick = {
                                         val base = if (ownerHostingUrl.startsWith("http")) {
-                                            ownerHostingUrl.removeSuffix("/").removeSuffix("/owner.html").removeSuffix("/index.html").removeSuffix("/rtdb-laporan.html").removeSuffix("/tutup-toko.html")
+                                            ownerHostingUrl.removeSuffix("/").removeSuffix("/owner.html").removeSuffix("/index.html").removeSuffix("/rtdb-laporan.html").removeSuffix("/tutup-toko.html").removeSuffix("/laporan-online-rtdb.html")
                                         } else {
                                             "http://localhost:3000"
                                         }
                                         val fileName = when (selectedSubTab) {
+                                            SourceCodeSubTab.ONLINE_REPORT_RTDB -> "laporan-online-rtdb.html"
                                             SourceCodeSubTab.TUTUP_TOKO_WEB -> "tutup-toko.html"
                                             SourceCodeSubTab.RTDB_WEB -> "rtdb-laporan.html"
                                             SourceCodeSubTab.OWNER_PORTAL -> "owner.html"

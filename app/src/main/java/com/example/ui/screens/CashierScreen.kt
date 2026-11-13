@@ -1082,8 +1082,7 @@ fun TutupKasirDialog(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val currentUser by viewModel.currentUser.collectAsState()
-    val transactionsFlow by viewModel.reportTransactions.collectAsState()
-    val transactions by transactionsFlow.collectAsState(initial = emptyList())
+    val transactions by viewModel.reportTransactions.collectAsState()
     val connectedPrinter by viewModel.printerManager.connectedDevice.collectAsState()
 
     val shiftTrxs = remember(transactions, currentUser) {

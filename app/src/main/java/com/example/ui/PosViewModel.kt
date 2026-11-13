@@ -33,8 +33,10 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.launch
 import java.util.Calendar
 
@@ -67,7 +69,8 @@ enum class DateFilter(val label: String) {
     TODAY("Hari Ini"),
     YESTERDAY("Kemarin"),
     LAST_7_DAYS("7 Hari"),
-    THIS_MONTH("Bulan Ini")
+    THIS_MONTH("Bulan Ini"),
+    ALL("Semua")
 }
 
 class PosViewModel(application: Application) : AndroidViewModel(application) {
@@ -167,6 +170,75 @@ class PosViewModel(application: Application) : AndroidViewModel(application) {
         _isAutoSyncActive.value = enabled
     }
 
+    // --- Layanan Latar Belakang & Push Notifikasi Stok Menipis/Habis ---
+    private val _isBackgroundServiceEnabled = MutableStateFlow(
+        prefs.getBoolean(com.example.service.PosBackgroundService.KEY_BG_SERVICE_ENABLED, true)
+    )
+    val isBackgroundServiceEnabled: StateFlow<Boolean> = _isBackgroundServiceEnabled.asStateFlow()
+
+    private val _isLowStockNotifEnabled = MutableStateFlow(
+        prefs.getBoolean(com.example.service.PosBackgroundService.KEY_LOW_STOCK_NOTIF_ENABLED, true)
+    )
+    val isLowStockNotifEnabled: StateFlow<Boolean> = _isLowStockNotifEnabled.asStateFlow()
+
+    val isBackgroundServiceRunning: StateFlow<Boolean> = com.example.service.PosBackgroundService.isRunning
+
+    fun setBackgroundServiceEnabled(enabled: Boolean) {
+        _isBackgroundServiceEnabled.value = enabled
+        prefs.edit().putBoolean(com.example.service.PosBackgroundService.KEY_BG_SERVICE_ENABLED, enabled).apply()
+        val appContext = getApplication<Application>()
+        if (enabled) {
+            com.example.service.PosBackgroundService.start(appContext)
+        } else {
+            com.example.service.PosBackgroundService.stop(appContext)
+        }
+    }
+
+    fun setLowStockNotifEnabled(enabled: Boolean) {
+        _isLowStockNotifEnabled.value = enabled
+        prefs.edit().putBoolean(com.example.service.PosBackgroundService.KEY_LOW_STOCK_NOTIF_ENABLED, enabled).apply()
+        if (enabled) {
+            checkLowStockAndNotify(forceAlert = true)
+        }
+    }
+
+    fun ensureBackgroundServiceStarted() {
+        val appContext = getApplication<Application>()
+        com.example.service.PosNotificationHelper.ensureChannels(appContext)
+        if (_isBackgroundServiceEnabled.value && !com.example.service.PosBackgroundService.isRunning.value) {
+            com.example.service.PosBackgroundService.start(appContext)
+        }
+        if (_isLowStockNotifEnabled.value) {
+            checkLowStockAndNotify(forceAlert = false)
+        }
+    }
+
+    fun checkLowStockAndNotify(
+        forceAlert: Boolean = false,
+        onResult: ((criticalCount: Int, sentCount: Int) -> Unit)? = null
+    ) {
+        viewModelScope.launch(Dispatchers.IO + coroutineExceptionHandler) {
+            val allProds = repository.getAllProductsList()
+            val criticalCount = allProds.count { it.isAvailable && (it.isLowStock || it.isOutOfStock) }
+            val shouldSend = _isLowStockNotifEnabled.value || forceAlert
+            val sentCount = if (shouldSend) {
+                com.example.service.PosNotificationHelper.notifyLowStockIfNeeded(
+                    context = getApplication(),
+                    storeName = storeProfile.value.storeName,
+                    allProducts = allProds,
+                    forceAlert = forceAlert
+                )
+            } else {
+                0
+            }
+            if (onResult != null) {
+                withContext(Dispatchers.Main) {
+                    onResult(criticalCount, sentCount)
+                }
+            }
+        }
+    }
+
     fun saveCloudHostingConfig(config: com.example.data.model.CloudHostingConfig) {
         viewModelScope.launch(coroutineExceptionHandler) {
             try {
@@ -183,6 +255,13 @@ class PosViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     init {
+        viewModelScope.launch(coroutineExceptionHandler) {
+            com.example.service.PosBackgroundService.userStoppedFromNotif.collect { ts ->
+                if (ts > 0L) {
+                    _isBackgroundServiceEnabled.value = false
+                }
+            }
+        }
         viewModelScope.launch(coroutineExceptionHandler) {
             try {
                 repository.seedDefaultUsersIfEmpty()
@@ -231,6 +310,19 @@ class PosViewModel(application: Application) : AndroidViewModel(application) {
                 }
             }
         }
+
+        // Date Rollover & Auto-Archive Engine (initial check & periodic check every 30s)
+        checkDateRolloverAndAutoArchive()
+        viewModelScope.launch(coroutineExceptionHandler) {
+            while (true) {
+                try {
+                    kotlinx.coroutines.delay(30000)
+                    checkDateRolloverAndAutoArchive()
+                } catch (e: Throwable) {
+                    // Ignore periodic check error
+                }
+            }
+        }
     }
 
     // --- Navigation & App State ---
@@ -246,6 +338,10 @@ class PosViewModel(application: Application) : AndroidViewModel(application) {
 
     fun selectTab(tab: MainTab) {
         _currentTab.value = tab
+        if (tab == MainTab.REPORT) {
+            checkDateRolloverAndAutoArchive()
+            refreshReportData()
+        }
     }
 
     // --- Auth & Users with Remember Me ---
@@ -318,7 +414,7 @@ class PosViewModel(application: Application) : AndroidViewModel(application) {
     fun resetDefaultUsers() {
         viewModelScope.launch {
             repository.resetDefaultUsers()
-            _loginError.value = "Akun default telah dipulihkan! Admin: admin (PIN: 1234), Kasir: kasir1 (PIN: 1111)"
+            _loginError.value = "Akun default berhasil dipulihkan! Silakan pilih akun pada Akses Cepat Staff."
         }
     }
 
@@ -352,21 +448,28 @@ class PosViewModel(application: Application) : AndroidViewModel(application) {
 
     // --- Store Profile ---
     val storeProfile: StateFlow<StoreProfile> = repository.getStoreProfile()
-        .combine(MutableStateFlow(StoreProfile())) { profile, default ->
-            profile ?: default
-        }
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), StoreProfile())
+        .map { it ?: StoreProfile(id = 1) }
+        .stateIn(viewModelScope, SharingStarted.Eagerly, StoreProfile(id = 1))
 
     fun updateStoreProfile(name: String, address: String, phone: String, ownerPhone: String, footer: String) {
         viewModelScope.launch {
-            val updated = storeProfile.value.copy(
-                storeName = name.trim(),
+            val updated = StoreProfile(
+                id = 1,
+                storeName = name.trim().ifEmpty { "KASIR POS" },
                 address = address.trim(),
                 phone = phone.trim(),
                 ownerPhone = ownerPhone.trim(),
                 receiptFooter = footer.trim()
             )
             repository.updateStoreProfile(updated)
+
+            // Also sync store profile to Firebase Realtime Database
+            try {
+                val dbId = firebaseDatabaseId.value
+                firebaseSyncRepository.syncStoreProfile(updated, databaseId = dbId)
+            } catch (t: Throwable) {
+                Log.w("PosViewModel", "Failed to sync store profile to RTDB: ${t.message}")
+            }
         }
     }
 
@@ -457,8 +560,34 @@ class PosViewModel(application: Application) : AndroidViewModel(application) {
                     }
                 }
 
-                // 2. Sinkronkan Laporan Tutup Kasir (Firebase Realtime Database /shift_reports)
-                val shiftSyncSuccess = firebaseSyncRepository.syncShiftClosing(closingWithId, databaseId = dbId)
+                val todayStart = getStartOfDay(0)
+                val todayEnd = getEndOfDay(0)
+                val todayExpenses = try {
+                    repository.getExpensesBetweenList(todayStart, todayEnd)
+                } catch (tExp: Throwable) {
+                    emptyList()
+                }
+                val totalExpenses = todayExpenses.sumOf { it.amount }
+                val expenseNotesSummary = todayExpenses.joinToString("; ") { exp ->
+                    val notePart = if (exp.notes.isNotBlank()) " (${exp.notes})" else ""
+                    "${exp.title} [${exp.category}]: Rp ${String.format(java.util.Locale("id", "ID"), "%,.0f", exp.amount)}$notePart"
+                }
+
+                // Sinkronkan pengeluaran hari ini agar lengkap di Web Laporan Chrome
+                for (exp in todayExpenses) {
+                    try {
+                        firebaseSyncRepository.syncExpense(exp, databaseId = dbId)
+                    } catch (_: Throwable) {
+                    }
+                }
+
+                // 2. Sinkronkan Laporan Tutup Kasir (Firebase Realtime Database /shift_reports & /daily_reports)
+                val shiftSyncSuccess = firebaseSyncRepository.syncShiftClosing(
+                    closing = closingWithId,
+                    databaseId = dbId,
+                    totalExpenses = totalExpenses,
+                    expenseNotes = expenseNotesSummary
+                )
 
                 // 3. Sinkronkan Profil Toko
                 try {
@@ -468,13 +597,18 @@ class PosViewModel(application: Application) : AndroidViewModel(application) {
                     // safe ignore
                 }
 
-                // 4. Sinkronkan Laporan Harian ke Realtime Database
+                // 4. Kirim Arsip Laporan Harian ke Database Online (HANYA SAAT TUTUP TOKO DITEKAN)
                 try {
                     val dateFormat = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.getDefault())
                     val todayStr = dateFormat.format(java.util.Date())
                     val dailyRep = repository.getDailyReportByDateDirect(todayStr)
                     if (dailyRep != null) {
-                        val dOk = firebaseSyncRepository.syncDailyReport(dailyRep, databaseId = dbId)
+                        val dOk = firebaseSyncRepository.syncDailyReport(
+                            dailyReport = dailyRep,
+                            databaseId = dbId,
+                            totalExpenses = totalExpenses,
+                            expenseNotes = expenseNotesSummary
+                        )
                         if (dOk) repository.markDailyReportAsSynced(todayStr)
                     }
                 } catch (tDaily: Throwable) {
@@ -592,12 +726,14 @@ class PosViewModel(application: Application) : AndroidViewModel(application) {
                 unit = unit.trim().ifBlank { "pcs" }
             )
             repository.insertProduct(product)
+            checkLowStockAndNotify(forceAlert = false)
         }
     }
 
     fun updateProduct(product: Product) {
         viewModelScope.launch {
             repository.updateProduct(product.copy(updatedAt = System.currentTimeMillis()))
+            checkLowStockAndNotify(forceAlert = false)
         }
     }
 
@@ -610,6 +746,7 @@ class PosViewModel(application: Application) : AndroidViewModel(application) {
     fun adjustStock(productId: Long, newStock: Int) {
         viewModelScope.launch {
             repository.adjustStock(productId, newStock)
+            checkLowStockAndNotify(forceAlert = false)
         }
     }
 
@@ -767,6 +904,9 @@ class PosViewModel(application: Application) : AndroidViewModel(application) {
             // Reset cart
             clearCart()
 
+            // Cek dan kirim push notifikasi jika stok makanan/minuman menipis atau habis
+            checkLowStockAndNotify(forceAlert = false)
+
             // Automatic Sync to Cloud Database (asynchronous in background on IO)
             val itemsForSync = transactionItems.map { it.copy(transactionId = newTrxId) }
             val dbId = firebaseDatabaseId.value
@@ -785,21 +925,6 @@ class PosViewModel(application: Application) : AndroidViewModel(application) {
                     _lastSyncStatus.value = "Tersimpan offline di Room DB (menunggu sinkron)"
                 }
             }
-
-            // Update Room Database Laporan Harian (SQLite)
-            viewModelScope.launch(Dispatchers.IO) {
-                try {
-                    val dateFormat = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.getDefault())
-                    val todayStr = dateFormat.format(java.util.Date())
-                    repository.generateOrUpdateDailyReportForDate(
-                        dateStr = todayStr,
-                        startTime = getStartOfDay(0),
-                        endTime = getEndOfDay(0)
-                    )
-                } catch (t: Throwable) {
-                    // Safe ignore
-                }
-            }
         }
     }
 
@@ -815,23 +940,143 @@ class PosViewModel(application: Application) : AndroidViewModel(application) {
     private val _reportStartTime = MutableStateFlow(getStartOfDay(0))
     private val _reportEndTime = MutableStateFlow(getEndOfDay(0))
 
-    val reportTransactions = combine(_reportStartTime, _reportEndTime) { start, end ->
+    @OptIn(ExperimentalCoroutinesApi::class)
+    val reportTransactions: StateFlow<List<Transaction>> = combine(_reportStartTime, _reportEndTime) { start, end ->
+        start to end
+    }.flatMapLatest { (start, end) ->
         repository.getTransactionsBetween(start, end)
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), repository.getTransactionsBetween(getStartOfDay(0), getEndOfDay(0)))
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
-    val topSellingProducts = combine(_reportStartTime, _reportEndTime) { start, end ->
+    @OptIn(ExperimentalCoroutinesApi::class)
+    val topSellingProducts: StateFlow<List<TopProductSummary>> = combine(_reportStartTime, _reportEndTime) { start, end ->
+        start to end
+    }.flatMapLatest { (start, end) ->
         repository.getTopSellingProducts(start, end)
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), repository.getTopSellingProducts(getStartOfDay(0), getEndOfDay(0)))
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
-    val paymentMethodStats = combine(_reportStartTime, _reportEndTime) { start, end ->
+    @OptIn(ExperimentalCoroutinesApi::class)
+    val paymentMethodStats: StateFlow<List<PaymentSummary>> = combine(_reportStartTime, _reportEndTime) { start, end ->
+        start to end
+    }.flatMapLatest { (start, end) ->
         repository.getPaymentMethodBreakdown(start, end)
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), repository.getPaymentMethodBreakdown(getStartOfDay(0), getEndOfDay(0)))
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
-    val totalProfitFlow = combine(_reportStartTime, _reportEndTime) { start, end ->
-        repository.getTotalProfitBetween(start, end)
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), repository.getTotalProfitBetween(getStartOfDay(0), getEndOfDay(0)))
+    @OptIn(ExperimentalCoroutinesApi::class)
+    val totalProfitFlow: StateFlow<Double> = combine(_reportStartTime, _reportEndTime) { start, end ->
+        start to end
+    }.flatMapLatest { (start, end) ->
+        repository.getTotalProfitBetween(start, end).map { it ?: 0.0 }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0.0)
 
-    private fun refreshReportData() {
+    @OptIn(ExperimentalCoroutinesApi::class)
+    val expensesFlow: StateFlow<List<com.example.data.model.Expense>> = combine(_reportStartTime, _reportEndTime) { start, end ->
+        start to end
+    }.flatMapLatest { (start, end) ->
+        repository.getExpensesBetween(start, end)
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    @OptIn(ExperimentalCoroutinesApi::class)
+    val totalExpensesFlow: StateFlow<Double> = combine(_reportStartTime, _reportEndTime) { start, end ->
+        start to end
+    }.flatMapLatest { (start, end) ->
+        repository.getTotalExpensesBetween(start, end).map { it ?: 0.0 }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0.0)
+
+    @OptIn(ExperimentalCoroutinesApi::class)
+    val grossProfitFlow: StateFlow<Double> = combine(_reportStartTime, _reportEndTime) { start, end ->
+        start to end
+    }.flatMapLatest { (start, end) ->
+        repository.getTotalProfitBetween(start, end).map { it ?: 0.0 }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0.0)
+
+    val netProfitFlow: StateFlow<Double> = combine(grossProfitFlow, totalExpensesFlow) { gross, expenses ->
+        gross - expenses
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0.0)
+
+    fun addExpense(title: String, amount: Double, category: String = "Operasional", notes: String = "") {
+        viewModelScope.launch(Dispatchers.IO + coroutineExceptionHandler) {
+            val user = _currentUser.value?.fullName ?: "Admin"
+            val newExpense = com.example.data.model.Expense(
+                title = title.trim(),
+                amount = amount,
+                category = category.trim().ifBlank { "Operasional" },
+                notes = notes.trim(),
+                createdBy = user
+            )
+            val insertedId = repository.insertExpense(newExpense)
+            val savedExpense = newExpense.copy(id = insertedId)
+            try {
+                firebaseSyncRepository.syncExpense(savedExpense, databaseId = firebaseDatabaseId.value)
+            } catch (t: Throwable) {
+                Log.w("PosViewModel", "Expense RTDB sync note: ${t.message}")
+            }
+        }
+    }
+
+    fun deleteExpense(expense: com.example.data.model.Expense) {
+        viewModelScope.launch(Dispatchers.IO + coroutineExceptionHandler) {
+            repository.deleteExpense(expense)
+            try {
+                firebaseSyncRepository.deleteExpenseFromRtdb(expense.id, databaseId = firebaseDatabaseId.value)
+            } catch (t: Throwable) {
+                Log.w("PosViewModel", "Expense RTDB delete note: ${t.message}")
+            }
+        }
+    }
+
+    fun printProfitExpenseReceipt(
+        grossProfit: Double,
+        expenses: Double,
+        netProfit: Double,
+        grossSales: Double,
+        onResult: ((Boolean, String) -> Unit)? = null
+    ) {
+        viewModelScope.launch(Dispatchers.IO + coroutineExceptionHandler) {
+            val profile = storeProfile.value
+            val label = selectedDateFilter.value.label
+            val cashier = currentUser.value?.fullName ?: "Admin"
+            val success = printerManager.printProfitExpenseReceipt(
+                profile = profile,
+                grossProfit = grossProfit,
+                expenses = expenses,
+                netProfit = netProfit,
+                grossSales = grossSales,
+                periodLabel = label,
+                cashierName = cashier
+            )
+            withContext(Dispatchers.Main) {
+                onResult?.invoke(success, printerManager.printStatus.value ?: "Selesai")
+            }
+        }
+    }
+
+    fun generateWhatsAppProfitExpenseText(
+        grossProfit: Double,
+        expenses: Double,
+        netProfit: Double,
+        grossSales: Double
+    ): String {
+        val profile = storeProfile.value
+        val dateLabel = selectedDateFilter.value.label
+        val cashier = currentUser.value?.fullName ?: "Admin"
+        val sb = StringBuilder()
+        sb.appendLine("📊 *LAPORAN KEUANGAN TOKO*")
+        sb.appendLine("🏪 *${profile.storeName}*")
+        sb.appendLine("📅 *Periode:* $dateLabel")
+        sb.appendLine("👤 *Petugas:* $cashier")
+        sb.appendLine("=".repeat(28))
+        sb.appendLine("💰 *Penjualan Kotor (Omset):* ${BluetoothPrinterManager.formatRupiah(grossSales)}")
+        sb.appendLine("📦 *LABA KOTOR:* ${BluetoothPrinterManager.formatRupiah(grossProfit)}")
+        sb.appendLine("💸 *PENGELUARAN:* ${BluetoothPrinterManager.formatRupiah(expenses)}")
+        sb.appendLine("-".repeat(28))
+        sb.appendLine("📈 *LABA BERSIH:* ${BluetoothPrinterManager.formatRupiah(netProfit)}")
+        sb.appendLine("=".repeat(28))
+        sb.appendLine("🗄️ *Penyimpanan Database Arsip Laporan:* Tersimpan di Cloud Hosting")
+        sb.appendLine("🌐 _Laporan otomatis terverifikasi sistem POS_")
+        return sb.toString()
+    }
+
+    fun refreshReportData() {
         when (_selectedDateFilter.value) {
             DateFilter.TODAY -> {
                 _reportStartTime.value = getStartOfDay(0)
@@ -849,6 +1094,65 @@ class PosViewModel(application: Application) : AndroidViewModel(application) {
                 _reportStartTime.value = getStartOfMonth()
                 _reportEndTime.value = getEndOfDay(0)
             }
+            DateFilter.ALL -> {
+                _reportStartTime.value = 0L
+                _reportEndTime.value = Long.MAX_VALUE
+            }
+        }
+    }
+
+    /**
+     * Memeriksa pergantian tanggal otomatis.
+     * Jika terjadi perubahan hari/tanggal:
+     * 1. Mengarsipkan laporan hari sebelumnya ke Room DB & Realtime Database (/daily_reports/$date).
+     * 2. Mereset statistik hari ini ke 0 (Rp 0, 0 struk) di aplikasi dan RTDB (realtime_stats/today).
+     * 3. Menyimpan arsip permanen setiap harinya.
+     */
+    fun checkDateRolloverAndAutoArchive() {
+        viewModelScope.launch(Dispatchers.IO + coroutineExceptionHandler) {
+            val dateFormat = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.getDefault())
+            val currentDateStr = dateFormat.format(java.util.Date())
+            val lastDateStr = prefs.getString("KEY_LAST_ACTIVE_DATE", "") ?: ""
+
+            if (lastDateStr.isNotBlank() && lastDateStr != currentDateStr) {
+                Log.d("PosViewModel", "Pergantian tanggal terdeteksi: $lastDateStr -> $currentDateStr. Mereset laporan hari ini ke Rp 0 (arsip database dikirim saat tekan Tutup Toko).")
+
+                // 1. Reset statistik live RTDB hari ini ke 0 (tanpa mengirim arsip /daily_reports otomatis)
+                try {
+                    val targetRtdb = if (!firebaseDatabaseId.value.isNullOrBlank() && firebaseDatabaseId.value != "(default)" && !firebaseDatabaseId.value.contains("ai-studio")) {
+                        firebaseDatabaseId.value
+                    } else {
+                        "foodrock-report-default-rtdb"
+                    }
+                    val isoStr = java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", java.util.Locale.US).apply {
+                        timeZone = java.util.TimeZone.getTimeZone("UTC")
+                    }.format(java.util.Date())
+                    val resetStats = org.json.JSONObject(mapOf(
+                        "todayRevenue" to 0,
+                        "todayTransactionsCount" to 0,
+                        "lastTransactionAmount" to 0,
+                        "lastInvoiceNumber" to "-",
+                        "lastCustomerName" to "-",
+                        "lastPaymentMethod" to "-",
+                        "lastCashierName" to "-",
+                        "lastItemsSummary" to "Belum ada transaksi hari ini",
+                        "lastTotalItemsCount" to 0,
+                        "lastUpdated" to isoStr,
+                        "date" to currentDateStr,
+                        "storeId" to storeProfile.value.storeName
+                    )).toString()
+                    firebaseSyncRepository.syncToRealtimeDatabase(targetRtdb, "realtime_stats/today", resetStats)
+                } catch (e: Throwable) {
+                    Log.w("PosViewModel", "Catatan reset live stats RTDB: ${e.message}")
+                }
+
+                // 2. Reset rentang waktu laporan hari ini di aplikasi agar kembali ke 0
+                withContext(Dispatchers.Main) {
+                    refreshReportData()
+                }
+            }
+
+            prefs.edit().putString("KEY_LAST_ACTIVE_DATE", currentDateStr).apply()
         }
     }
 
@@ -865,19 +1169,13 @@ class PosViewModel(application: Application) : AndroidViewModel(application) {
             try {
                 val dateFormat = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.getDefault())
                 val todayStr = dateFormat.format(java.util.Date())
-                val report = repository.generateOrUpdateDailyReportForDate(
+                repository.generateOrUpdateDailyReportForDate(
                     dateStr = todayStr,
                     startTime = getStartOfDay(0),
                     endTime = getEndOfDay(0)
                 )
-                val dbId = firebaseDatabaseId.value
-                val rtdbOk = firebaseSyncRepository.syncDailyReport(report, databaseId = dbId)
-                if (rtdbOk) {
-                    repository.markDailyReportAsSynced(report.date)
-                }
                 withContext(Dispatchers.Main) {
-                    val syncMsg = if (rtdbOk) " & tersinkron ke Realtime Database Cloud!" else "!"
-                    onResult?.invoke(true, "Laporan hari ini ($todayStr) berhasil disimpan di Room DB$syncMsg")
+                    onResult?.invoke(true, "Laporan hari ini ($todayStr) tersimpan lokal di Room DB. Tekan Tutup Toko untuk mengirim arsip ke Database Online.")
                 }
             } catch (t: Throwable) {
                 withContext(Dispatchers.Main) {
@@ -941,6 +1239,18 @@ class PosViewModel(application: Application) : AndroidViewModel(application) {
         val profile = storeProfile.value
         viewModelScope.launch {
             printerManager.printDailyReport(profile, report)
+        }
+    }
+
+    fun printOmsetReceipt(totalRevenue: Double, onResult: ((Boolean, String) -> Unit)? = null) {
+        viewModelScope.launch(Dispatchers.IO + coroutineExceptionHandler) {
+            val profile = storeProfile.value
+            val label = selectedDateFilter.value.label
+            val cashier = currentUser.value?.fullName ?: "Admin"
+            val success = printerManager.printOmsetReceipt(profile, totalRevenue, label, cashier)
+            withContext(Dispatchers.Main) {
+                onResult?.invoke(success, printerManager.printStatus.value ?: "Selesai")
+            }
         }
     }
 
@@ -1020,6 +1330,18 @@ class PosViewModel(application: Application) : AndroidViewModel(application) {
                         if (success) shiftCount++
                     } catch (tShift: Throwable) {
                         Log.w("PosViewModel", "syncShiftClosing note", tShift)
+                    }
+                }
+
+                val recentExpenses = try {
+                    repository.getExpensesBetweenList(0L, System.currentTimeMillis()).take(50)
+                } catch (tExp: Throwable) {
+                    emptyList()
+                }
+                for (exp in recentExpenses) {
+                    try {
+                        firebaseSyncRepository.syncExpense(exp, databaseId = dbId)
+                    } catch (_: Throwable) {
                     }
                 }
 

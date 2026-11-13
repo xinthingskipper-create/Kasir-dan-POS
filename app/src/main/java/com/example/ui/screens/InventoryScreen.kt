@@ -1,5 +1,11 @@
 package com.example.ui.screens
 
+import android.Manifest
+import android.os.Build
+import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -29,6 +35,8 @@ import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Inventory
+import androidx.compose.material.icons.filled.NotificationsActive
+import androidx.compose.material.icons.filled.NotificationsOff
 import androidx.compose.material.icons.filled.Remove
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.SwapVert
@@ -60,6 +68,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
@@ -79,8 +88,26 @@ enum class InventoryFilter {
 
 @Composable
 fun InventoryScreen(viewModel: PosViewModel) {
+    val context = LocalContext.current
     val allProducts by viewModel.allProducts.collectAsState()
     val categories by viewModel.categories.collectAsState()
+    val isBgServiceRunning by viewModel.isBackgroundServiceRunning.collectAsState()
+    val isLowStockNotifEnabled by viewModel.isLowStockNotifEnabled.collectAsState()
+
+    val notifPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        if (granted) {
+            viewModel.ensureBackgroundServiceStarted()
+            viewModel.checkLowStockAndNotify(forceAlert = true) { critical, sent ->
+                if (sent > 0) {
+                    Toast.makeText(context, "Push notifikasi terkirim untuk $critical menu!", Toast.LENGTH_SHORT).show()
+                }
+            }
+        } else {
+            Toast.makeText(context, "Izin notifikasi diperlukan untuk push notifikasi stok.", Toast.LENGTH_LONG).show()
+        }
+    }
 
     var searchQuery by remember { mutableStateOf("") }
     var selectedCategory by remember { mutableStateOf<String?>(null) }
@@ -169,6 +196,89 @@ fun InventoryScreen(viewModel: PosViewModel) {
                         .weight(1f)
                         .clickable { currentFilter = InventoryFilter.OUT_OF_STOCK }
                 )
+            }
+
+            // Live Background Monitor & Push Notification Banner
+            val criticalTotal = allProducts.count { it.isAvailable && (it.isLowStock || it.isOutOfStock) }
+            Surface(
+                shape = RoundedCornerShape(10.dp),
+                color = if (criticalTotal > 0) Color(0xFFFFFBEB) else Color(0xFFF0FDF4),
+                border = BorderStroke(
+                    1.dp,
+                    if (criticalTotal > 0) Color(0xFFFDE68A) else Color(0xFFBBF7D0)
+                ),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 4.dp)
+                    .testTag("inventory_bg_monitor_banner")
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Icon(
+                            imageVector = if (isLowStockNotifEnabled) Icons.Default.NotificationsActive else Icons.Default.NotificationsOff,
+                            contentDescription = "Status Notifikasi Stok",
+                            tint = if (criticalTotal > 0) Color(0xFFD97706) else Color(0xFF16A34A),
+                            modifier = Modifier.size(20.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Column {
+                            Text(
+                                text = if (isBgServiceRunning) "🟢 Monitor Latar Belakang Aktif" else "⚪ Monitor Latar Belakang Nonaktif",
+                                fontSize = 11.5.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = if (criticalTotal > 0) Color(0xFF92400E) else Color(0xFF166534)
+                            )
+                            Text(
+                                text = if (criticalTotal > 0) {
+                                    "$criticalTotal menu makanan/minuman stok menipis atau habis"
+                                } else {
+                                    "Semua stok makanan & minuman aman"
+                                },
+                                fontSize = 10.5.sp,
+                                color = if (criticalTotal > 0) Color(0xFFB45309) else Color(0xFF15803D),
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+                    }
+
+                    if (criticalTotal > 0) {
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Button(
+                            onClick = {
+                                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+                                    !com.example.service.PosNotificationHelper.hasNotificationPermission(context)
+                                ) {
+                                    notifPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+                                } else {
+                                    viewModel.checkLowStockAndNotify(forceAlert = true) { critical, sent ->
+                                        val msg = if (sent > 0) {
+                                            "Push notifikasi dikirim untuk $critical menu!"
+                                        } else {
+                                            "Tidak dapat mengirim notifikasi ($critical menu kritis)."
+                                        }
+                                        Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
+                                    }
+                                }
+                            },
+                            shape = RoundedCornerShape(8.dp),
+                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
+                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFD97706)),
+                            modifier = Modifier
+                                .height(48.dp)
+                                .testTag("btn_inventory_push_notif")
+                        ) {
+                            Text("Kirim Push Notif", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                        }
+                    }
+                }
             }
 
             // Search Bar

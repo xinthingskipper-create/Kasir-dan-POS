@@ -7,6 +7,7 @@ import androidx.credentials.GetCredentialRequest
 import androidx.credentials.exceptions.GetCredentialCancellationException
 import com.example.R
 import com.example.data.model.DailyReport
+import com.example.data.model.Expense
 import com.example.data.model.ShiftClosing
 import com.example.data.model.StoreProfile
 import com.example.data.model.Transaction
@@ -240,7 +241,9 @@ class FirebaseSyncRepository(private val context: Context) {
             }
 
             val dateFormat = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault())
-            val isoFormat = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", Locale.getDefault())
+            val isoFormat = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", Locale.US).apply {
+                timeZone = java.util.TimeZone.getTimeZone("UTC")
+            }
             val dateStr = dateFormat.format(Date(transaction.timestamp))
             val isoStr = isoFormat.format(Date(transaction.timestamp))
 
@@ -297,13 +300,10 @@ class FirebaseSyncRepository(private val context: Context) {
                     "foodrock-report-default-rtdb"
                 }
                 
-                // 1. All Transactions pool
+                // 1. All Transactions pool (live stream, NOT daily_reports archive)
                 rtdbSuccess = syncToRealtimeDatabase(targetRtdb, "transactions/${transaction.invoiceNumber}", rtdbPayload)
 
-                // 2. Daily reports transactions list (Grouped by date for instant query & daily audit)
-                syncToRealtimeDatabase(targetRtdb, "daily_reports/$dateStr/transactions/${transaction.invoiceNumber}", rtdbPayload)
-
-                // 3. Reports by date node
+                // 2. Reports by date node (live transaction lookup)
                 syncToRealtimeDatabase(targetRtdb, "reports/daily_transactions/$dateStr/${transaction.invoiceNumber}", rtdbPayload)
 
                 // 4. Update Realtime Stats for today (live counter for owner dashboard)
@@ -321,19 +321,30 @@ class FirebaseSyncRepository(private val context: Context) {
                 )).toString()
                 syncToRealtimeDatabase(targetRtdb, "realtime_stats/today", statsJson)
 
-                // 5. Customer tracking entry for index.html lookup
-                val trackingJson = JSONObject(mapOf(
+                // 5. Customer & Purchase tracking entry for live tracking
+                val trackingMap = mutableMapOf<String, Any>(
                     "orderNumber" to transaction.invoiceNumber,
+                    "invoiceNumber" to transaction.invoiceNumber,
                     "customerName" to transaction.customerName,
                     "orderType" to transaction.orderType.name,
+                    "tableNumber" to (transaction.tableNumber ?: ""),
                     "itemsSummary" to itemsSummary,
+                    "items" to itemsList,
                     "totalAmount" to transaction.grandTotal,
+                    "grandTotal" to transaction.grandTotal,
+                    "paymentMethod" to transaction.paymentMethod.name,
                     "status" to "SELESAI",
+                    "orderStatus" to "SELESAI",
                     "paymentStatus" to "LUNAS",
+                    "cashierName" to transaction.cashierName,
                     "date" to dateStr,
-                    "timestamp" to isoStr
-                )).toString()
+                    "timestamp" to isoStr,
+                    "syncedAt" to isoStr,
+                    "notes" to (transaction.notes ?: "")
+                )
+                val trackingJson = JSONObject(trackingMap as Map<*, *>).toString()
                 syncToRealtimeDatabase(targetRtdb, "customer_tracking/${transaction.invoiceNumber}", trackingJson)
+                syncToRealtimeDatabase(targetRtdb, "purchase_tracking/${transaction.invoiceNumber}", trackingJson)
             } catch (t: Throwable) {
                 if (t is CancellationException) throw t
                 Log.w("FirebaseSync", "RTDB sync note: ${t.message}")
@@ -350,11 +361,14 @@ class FirebaseSyncRepository(private val context: Context) {
 
     /**
      * Menyinkronkan laporan tutup kasir (shift closing) langsung ke Firebase Realtime Database.
+     * Dipanggil saat tombol Tutup Toko ditekan untuk mengirim arsip ke /shift_reports dan /daily_reports.
      */
     suspend fun syncShiftClosing(
         closing: ShiftClosing,
         storeId: String = "store_main",
-        databaseId: String? = null
+        databaseId: String? = null,
+        totalExpenses: Double = 0.0,
+        expenseNotes: String = ""
     ): Boolean = withContext(Dispatchers.IO) {
         try {
             val effectiveUserId = try {
@@ -364,7 +378,9 @@ class FirebaseSyncRepository(private val context: Context) {
             }
 
             val dateFormat = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault())
-            val isoFormat = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", Locale.getDefault())
+            val isoFormat = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", Locale.US).apply {
+                timeZone = java.util.TimeZone.getTimeZone("UTC")
+            }
             val dateStr = dateFormat.format(Date(closing.closingTime))
             val isoStr = isoFormat.format(Date(closing.closingTime))
 
@@ -379,14 +395,18 @@ class FirebaseSyncRepository(private val context: Context) {
                 "endTime" to isoStr,
                 "totalTransactions" to closing.totalTransactions.toDouble(),
                 "totalRevenue" to closing.totalRevenue,
+                "grossRevenue" to closing.totalRevenue,
                 "totalCash" to closing.totalCash,
                 "totalNonCash" to closing.totalNonCash,
+                "totalExpenses" to totalExpenses,
+                "expenseNotes" to expenseNotes,
                 "expectedCash" to closing.expectedCash,
                 "actualCash" to closing.actualCash,
                 "difference" to closing.difference,
                 "itemsSold" to 0.0,
                 "notes" to (closing.notes ?: ""),
                 "timestamp" to isoStr,
+                "timestampMillis" to closing.closingTime,
                 "date" to dateStr,
                 "storeId" to storeId,
                 "userId" to effectiveUserId,
@@ -404,22 +424,26 @@ class FirebaseSyncRepository(private val context: Context) {
                 }
                 rtdbShiftSuccess = syncToRealtimeDatabase(targetRtdb, "shift_reports/$docId", rtdbPayload)
 
-                // Update daily_reports in Realtime Database
+                // Update daily_reports archive ONLY on Tutup Toko
                 val dailyPayload = JSONObject(mapOf(
                     "date" to dateStr,
                     "totalRevenue" to closing.totalRevenue,
+                    "grossRevenue" to closing.totalRevenue,
                     "totalCash" to closing.totalCash,
                     "totalNonCash" to closing.totalNonCash,
+                    "totalExpenses" to totalExpenses,
+                    "expenseNotes" to expenseNotes,
                     "totalTransactions" to closing.totalTransactions,
                     "expectedCash" to closing.expectedCash,
                     "actualCash" to closing.actualCash,
                     "difference" to closing.difference,
                     "lastShiftId" to docId,
                     "lastShiftCashier" to closing.cashierName,
+                    "archivedByTutupToko" to true,
                     "lastUpdated" to isoStr,
                     "storeId" to storeId
                 )).toString()
-                syncToRealtimeDatabase(targetRtdb, "daily_reports/$dateStr", dailyPayload)
+                patchToRealtimeDatabase(targetRtdb, "daily_reports/$dateStr", dailyPayload)
 
                 // Update realtime_stats/last_shift
                 val statsShiftPayload = JSONObject(mapOf(
@@ -427,6 +451,7 @@ class FirebaseSyncRepository(private val context: Context) {
                     "lastShiftCashier" to closing.cashierName,
                     "lastShiftRevenue" to closing.totalRevenue,
                     "lastShiftActualCash" to closing.actualCash,
+                    "lastShiftExpenses" to totalExpenses,
                     "lastShiftDifference" to closing.difference,
                     "lastShiftTimestamp" to isoStr,
                     "date" to dateStr
@@ -446,6 +471,82 @@ class FirebaseSyncRepository(private val context: Context) {
     }
 
     /**
+     * Menyinkronkan catatan pengeluaran operasional toko langsung ke /expenses/{id}.
+     */
+    suspend fun syncExpense(
+        expense: Expense,
+        storeId: String = "store_main",
+        databaseId: String? = null
+    ): Boolean = withContext(Dispatchers.IO) {
+        try {
+            val dateFormat = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault())
+            val isoFormat = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", Locale.US).apply {
+                timeZone = java.util.TimeZone.getTimeZone("UTC")
+            }
+            val dateStr = dateFormat.format(Date(expense.timestamp))
+            val isoStr = isoFormat.format(Date(expense.timestamp))
+            val expKey = "EXP-${expense.id.takeIf { it > 0 } ?: expense.timestamp}"
+            val payload = JSONObject(mapOf(
+                "id" to expKey,
+                "localId" to expense.id,
+                "title" to expense.title,
+                "amount" to expense.amount,
+                "category" to expense.category,
+                "notes" to expense.notes,
+                "createdBy" to expense.createdBy,
+                "date" to dateStr,
+                "timestamp" to isoStr,
+                "timestampMillis" to expense.timestamp,
+                "storeId" to storeId
+            )).toString()
+
+            val targetRtdb = if (!databaseId.isNullOrBlank() && databaseId != "(default)" && !databaseId.contains("ai-studio")) {
+                databaseId
+            } else {
+                "foodrock-report-default-rtdb"
+            }
+            syncToRealtimeDatabase(targetRtdb, "expenses/$expKey", payload)
+        } catch (t: Throwable) {
+            if (t is CancellationException) throw t
+            Log.w("FirebaseSync", "Failed to sync expense ${expense.id}: ${t.message}")
+            false
+        }
+    }
+
+    /**
+     * Menghapus catatan pengeluaran dari node /expenses di Realtime Database.
+     */
+    suspend fun deleteExpenseFromRtdb(
+        expenseId: Long,
+        databaseId: String? = null
+    ): Boolean = withContext(Dispatchers.IO) {
+        if (expenseId <= 0L) return@withContext false
+        val cleanTarget = databaseId?.trim()?.ifBlank { "foodrock-report-default-rtdb" } ?: "foodrock-report-default-rtdb"
+        val path = "expenses/EXP-$expenseId"
+        val urls = mutableListOf(
+            "https://foodrock-report-default-rtdb.asia-southeast1.firebasedatabase.app/$path.json",
+            "https://foodrock-report-default-rtdb.firebaseio.com/$path.json"
+        )
+        if (cleanTarget != "foodrock-report-default-rtdb" && !cleanTarget.contains("ai-studio")) {
+            val base = cleanTarget.replace("https://", "").replace(".firebaseio.com", "").replace(".asia-southeast1.firebasedatabase.app", "")
+            if (base.isNotBlank()) {
+                urls.add("https://$base.asia-southeast1.firebasedatabase.app/$path.json")
+                urls.add("https://$base.firebaseio.com/$path.json")
+            }
+        }
+        for (url in urls.distinct()) {
+            try {
+                val req = Request.Builder().url(url).delete().build()
+                rtdbClient.newCall(req).execute().use { resp ->
+                    if (resp.isSuccessful) return@withContext true
+                }
+            } catch (_: Throwable) {
+            }
+        }
+        false
+    }
+
+    /**
      * Menyinkronkan identitas profil toko ke Firebase Realtime Database.
      */
     suspend fun syncStoreProfile(
@@ -460,7 +561,9 @@ class FirebaseSyncRepository(private val context: Context) {
                 "pos_terminal_${storeId}"
             }
 
-            val isoFormat = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", Locale.getDefault())
+            val isoFormat = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", Locale.US).apply {
+                timeZone = java.util.TimeZone.getTimeZone("UTC")
+            }
             val payload = hashMapOf<String, Any>(
                 "storeName" to (profile.storeName ?: "Kasir POS"),
                 "address" to (profile.address ?: ""),
@@ -509,6 +612,19 @@ class FirebaseSyncRepository(private val context: Context) {
         targetHostOrProject: String?,
         path: String,
         jsonBody: String
+    ): Boolean = sendToRealtimeDatabase(targetHostOrProject, path, jsonBody, usePatch = false)
+
+    suspend fun patchToRealtimeDatabase(
+        targetHostOrProject: String?,
+        path: String,
+        jsonBody: String
+    ): Boolean = sendToRealtimeDatabase(targetHostOrProject, path, jsonBody, usePatch = true)
+
+    private suspend fun sendToRealtimeDatabase(
+        targetHostOrProject: String?,
+        path: String,
+        jsonBody: String,
+        usePatch: Boolean
     ): Boolean = withContext(Dispatchers.IO) {
         val cleanTarget = targetHostOrProject?.trim()?.ifBlank { "foodrock-report-default-rtdb" } ?: "foodrock-report-default-rtdb"
         val urls = mutableListOf<String>()
@@ -538,10 +654,8 @@ class FirebaseSyncRepository(private val context: Context) {
 
         for (url in urls.distinct()) {
             try {
-                val request = Request.Builder()
-                    .url(url)
-                    .put(body)
-                    .build()
+                val requestBuilder = Request.Builder().url(url)
+                val request = if (usePatch) requestBuilder.patch(body).build() else requestBuilder.put(body).build()
                 rtdbClient.newCall(request).execute().use { response ->
                     val respBody = response.body?.string() ?: ""
                     if (response.isSuccessful) {
@@ -563,17 +677,26 @@ class FirebaseSyncRepository(private val context: Context) {
 
     /**
      * Menyinkronkan rekap laporan harian (DailyReport dari Room DB) ke Realtime Database.
+     * Hanya dipanggil ketika kasir menekan tombol Tutup Toko.
      */
     suspend fun syncDailyReport(
         dailyReport: DailyReport,
-        databaseId: String? = null
+        databaseId: String? = null,
+        totalExpenses: Double = 0.0,
+        expenseNotes: String = ""
     ): Boolean = withContext(Dispatchers.IO) {
         try {
+            val isoFormat = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", Locale.US).apply {
+                timeZone = java.util.TimeZone.getTimeZone("UTC")
+            }
             val payload = mapOf(
                 "date" to dailyReport.date,
                 "dateTimestamp" to dailyReport.dateTimestamp,
                 "totalRevenue" to dailyReport.totalRevenue,
+                "grossRevenue" to dailyReport.totalRevenue,
                 "totalProfit" to dailyReport.totalProfit,
+                "totalExpenses" to totalExpenses,
+                "expenseNotes" to expenseNotes,
                 "totalTransactions" to dailyReport.totalTransactions,
                 "totalItemsSold" to dailyReport.totalItemsSold,
                 "totalCash" to dailyReport.totalCash,
@@ -589,6 +712,8 @@ class FirebaseSyncRepository(private val context: Context) {
                 "cashierNames" to dailyReport.cashierNames,
                 "shiftCount" to dailyReport.shiftCount,
                 "notes" to dailyReport.notes,
+                "archivedByTutupToko" to true,
+                "lastUpdated" to isoFormat.format(Date()),
                 "updatedAt" to System.currentTimeMillis()
             )
             val jsonStr = JSONObject(payload).toString()
@@ -597,8 +722,8 @@ class FirebaseSyncRepository(private val context: Context) {
             } else {
                 "foodrock-report-default-rtdb"
             }
-            val rtdb1 = syncToRealtimeDatabase(target, "daily_reports/${dailyReport.date}", jsonStr)
-            val rtdb2 = syncToRealtimeDatabase(target, "reports/daily/${dailyReport.date}", jsonStr)
+            val rtdb1 = patchToRealtimeDatabase(target, "daily_reports/${dailyReport.date}", jsonStr)
+            val rtdb2 = patchToRealtimeDatabase(target, "reports/daily/${dailyReport.date}", jsonStr)
             rtdb1 || rtdb2
         } catch (t: Throwable) {
             Log.e("FirebaseSync", "Failed to sync daily report to RTDB: ${t.message}", t)

@@ -240,7 +240,7 @@ fun LoginScreen(viewModel: PosViewModel) {
                                                     color = Color(0xFF0F172A)
                                                 )
                                                 Text(
-                                                    text = "ID: ${user.username} • PIN: ${user.pin}",
+                                                    text = "ID: @${user.username} • PIN: ••••",
                                                     fontSize = 11.sp,
                                                     color = Color(0xFF64748B)
                                                 )
@@ -359,9 +359,9 @@ fun LoginScreen(viewModel: PosViewModel) {
 
                 Spacer(modifier = Modifier.height(16.dp))
 
-                // Quick Demo Chips
+                // Quick Staff Selection Chips (Dynamic from allUsers, without displaying PINs)
                 Text(
-                    text = "⚡ Akses Cepat Akun Demo (Klik untuk Isi):",
+                    text = "⚡ Akses Cepat Akun Staff (Klik untuk Pilih):",
                     fontSize = 11.sp,
                     fontWeight = FontWeight.Bold,
                     color = Color(0xFF475569)
@@ -371,105 +371,43 @@ fun LoginScreen(viewModel: PosViewModel) {
 
                 LazyRow(
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    modifier = Modifier.fillMaxWidth()
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("row_quick_login_staff")
                 ) {
-                    item {
-                        Surface(
-                            shape = RoundedCornerShape(10.dp),
-                            color = if (username == "admin") Color(0xFF7C3AED) else Color(0xFFF3E8FF),
-                            border = BorderStroke(1.dp, Color(0xFF7C3AED)),
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(10.dp))
-                                .clickable {
-                                    username = "admin"
-                                    pin = "1234"
-                                }
-                                .testTag("chip_login_admin")
-                        ) {
-                            Row(
-                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.Shield,
-                                    contentDescription = null,
-                                    tint = if (username == "admin") Color.White else Color(0xFF7C3AED),
-                                    modifier = Modifier.size(14.dp)
-                                )
-                                Spacer(modifier = Modifier.width(6.dp))
-                                Text(
-                                    text = "👑 Admin (1234)",
-                                    fontSize = 12.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = if (username == "admin") Color.White else Color(0xFF7C3AED)
-                                )
-                            }
-                        }
-                    }
+                    items(allUsers, key = { it.id }) { user ->
+                        val isSelected = username.equals(user.username, ignoreCase = true)
+                        val roleColor = if (user.role == UserRole.ADMIN) Color(0xFF7C3AED) else Color(0xFF059669)
+                        val roleBg = if (isSelected) roleColor else if (user.role == UserRole.ADMIN) Color(0xFFF3E8FF) else Color(0xFFECFDF5)
 
-                    item {
                         Surface(
                             shape = RoundedCornerShape(10.dp),
-                            color = if (username == "kasir1") Color(0xFF059669) else Color(0xFFECFDF5),
-                            border = BorderStroke(1.dp, Color(0xFF059669)),
+                            color = roleBg,
+                            border = BorderStroke(1.dp, roleColor),
                             modifier = Modifier
                                 .clip(RoundedCornerShape(10.dp))
                                 .clickable {
-                                    username = "kasir1"
-                                    pin = "1111"
+                                    username = user.username
+                                    pin = user.pin
                                 }
-                                .testTag("chip_login_kasir1")
+                                .testTag("chip_login_${user.username}")
                         ) {
                             Row(
                                 modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 Icon(
-                                    imageVector = Icons.Default.Person,
+                                    imageVector = if (user.role == UserRole.ADMIN) Icons.Default.Shield else Icons.Default.Person,
                                     contentDescription = null,
-                                    tint = if (username == "kasir1") Color.White else Color(0xFF059669),
+                                    tint = if (isSelected) Color.White else roleColor,
                                     modifier = Modifier.size(14.dp)
                                 )
                                 Spacer(modifier = Modifier.width(6.dp))
                                 Text(
-                                    text = "👤 Kasir 1 (1111)",
+                                    text = "${if (user.role == UserRole.ADMIN) "👑" else "👤"} ${user.fullName}",
                                     fontSize = 12.sp,
                                     fontWeight = FontWeight.Bold,
-                                    color = if (username == "kasir1") Color.White else Color(0xFF059669)
-                                )
-                            }
-                        }
-                    }
-
-                    item {
-                        Surface(
-                            shape = RoundedCornerShape(10.dp),
-                            color = if (username == "kasir2") Color(0xFF0284C7) else Color(0xFFF0F9FF),
-                            border = BorderStroke(1.dp, Color(0xFF0284C7)),
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(10.dp))
-                                .clickable {
-                                    username = "kasir2"
-                                    pin = "2222"
-                                }
-                                .testTag("chip_login_kasir2")
-                        ) {
-                            Row(
-                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.Person,
-                                    contentDescription = null,
-                                    tint = if (username == "kasir2") Color.White else Color(0xFF0284C7),
-                                    modifier = Modifier.size(14.dp)
-                                )
-                                Spacer(modifier = Modifier.width(6.dp))
-                                Text(
-                                    text = "👤 Kasir 2 (2222)",
-                                    fontSize = 12.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = if (username == "kasir2") Color.White else Color(0xFF0284C7)
+                                    color = if (isSelected) Color.White else roleColor
                                 )
                             }
                         }

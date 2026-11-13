@@ -30,6 +30,10 @@ import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Phone
+import androidx.compose.material.icons.filled.Visibility
+import androidx.compose.material.icons.filled.VisibilityOff
+import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -288,7 +292,7 @@ private fun UserRowCard(
                     Spacer(modifier = Modifier.height(2.dp))
 
                     Text(
-                        text = "Username: @${user.username} • PIN: ${user.pin}",
+                        text = "Username: @${user.username} • PIN: ••••",
                         fontSize = 12.sp,
                         color = Color(0xFF64748B)
                     )
@@ -348,6 +352,7 @@ fun UserFormDialog(
     var fullName by remember { mutableStateOf(initialUser?.fullName ?: "") }
     var role by remember { mutableStateOf(initialUser?.role ?: UserRole.KASIR) }
     var phone by remember { mutableStateOf(initialUser?.phone ?: "") }
+    var isPinVisible by remember { mutableStateOf(false) }
 
     Dialog(onDismissRequest = onDismiss) {
         Surface(
@@ -393,6 +398,16 @@ fun UserFormDialog(
                     onValueChange = { if (it.length <= 6) pin = it },
                     label = { Text("PIN Kasir (4-6 angka)") },
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
+                    visualTransformation = if (isPinVisible) VisualTransformation.None else PasswordVisualTransformation(),
+                    trailingIcon = {
+                        IconButton(onClick = { isPinVisible = !isPinVisible }) {
+                            Icon(
+                                imageVector = if (isPinVisible) Icons.Default.VisibilityOff else Icons.Default.Visibility,
+                                contentDescription = if (isPinVisible) "Sembunyikan PIN" else "Lihat PIN",
+                                tint = Color(0xFF64748B)
+                            )
+                        }
+                    },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth().testTag("user_pin_input"),
                     shape = RoundedCornerShape(10.dp)

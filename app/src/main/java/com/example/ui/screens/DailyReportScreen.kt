@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -28,6 +29,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Assessment
 import androidx.compose.material.icons.filled.CalendarToday
 import androidx.compose.material.icons.filled.Chat
@@ -72,6 +74,7 @@ import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.foundation.BorderStroke
@@ -117,19 +120,19 @@ import java.util.Locale
 @Composable
 fun DailyReportScreen(viewModel: PosViewModel) {
     val context = LocalContext.current
+    androidx.compose.runtime.LaunchedEffect(Unit) {
+        viewModel.checkDateRolloverAndAutoArchive()
+        viewModel.refreshReportData()
+    }
     val clipboardManager = LocalClipboardManager.current
     val selectedFilter by viewModel.selectedDateFilter.collectAsState()
-    val transactionsFlow by viewModel.reportTransactions.collectAsState()
-    val transactions by transactionsFlow.collectAsState(initial = emptyList())
-
-    val topProductsFlow by viewModel.topSellingProducts.collectAsState()
-    val topProducts by topProductsFlow.collectAsState(initial = emptyList())
-
-    val paymentStatsFlow by viewModel.paymentMethodStats.collectAsState()
-    val paymentStats by paymentStatsFlow.collectAsState(initial = emptyList())
-
-    val profitFlow by viewModel.totalProfitFlow.collectAsState()
-    val totalProfit by profitFlow.collectAsState(initial = 0.0)
+    val transactions by viewModel.reportTransactions.collectAsState()
+    val topProducts by viewModel.topSellingProducts.collectAsState()
+    val paymentStats by viewModel.paymentMethodStats.collectAsState()
+    val netProfit by viewModel.netProfitFlow.collectAsState()
+    val grossProfit by viewModel.grossProfitFlow.collectAsState()
+    val totalExpenses by viewModel.totalExpensesFlow.collectAsState()
+    val expensesList by viewModel.expensesFlow.collectAsState()
 
     val shiftClosings by viewModel.allShiftClosings.collectAsState()
     val storeProfile by viewModel.storeProfile.collectAsState()
@@ -154,13 +157,35 @@ fun DailyReportScreen(viewModel: PosViewModel) {
 
     var showWhatsAppDialog by remember { mutableStateOf(false) }
     var showWebHostingDialog by remember { mutableStateOf(false) }
+    var showAddExpenseDialog by remember { mutableStateOf(false) }
+    var showExpensesListDialog by remember { mutableStateOf(false) }
+    var orderSearchQuery by remember { mutableStateOf("") }
 
-    // Filter transactions based on sync status filter
-    val filteredTransactions = remember(transactions, syncStatusFilter) {
-        when (syncStatusFilter) {
-            "SYNCED" -> transactions.filter { it.isSynced }
-            "UNSYNCED" -> transactions.filter { !it.isSynced }
-            else -> transactions
+    val isAdmin = currentUser?.role == UserRole.ADMIN
+
+    // Filter transactions based on sync status filter and search query
+    val filteredTransactions = remember(transactions, syncStatusFilter, orderSearchQuery, isAdmin) {
+        val listBySync = if (isAdmin) {
+            when (syncStatusFilter) {
+                "SYNCED" -> transactions.filter { it.isSynced }
+                "UNSYNCED" -> transactions.filter { !it.isSynced }
+                else -> transactions
+            }
+        } else {
+            transactions
+        }
+
+        if (orderSearchQuery.isBlank()) {
+            listBySync
+        } else {
+            val query = orderSearchQuery.trim().lowercase(Locale.ROOT)
+            listBySync.filter { trx ->
+                trx.invoiceNumber.lowercase(Locale.ROOT).contains(query) ||
+                trx.customerName.lowercase(Locale.ROOT).contains(query) ||
+                trx.tableNumber.lowercase(Locale.ROOT).contains(query) ||
+                trx.paymentMethod.name.lowercase(Locale.ROOT).contains(query) ||
+                trx.paymentMethod.label.lowercase(Locale.ROOT).contains(query)
+            }
         }
     }
 
@@ -168,7 +193,6 @@ fun DailyReportScreen(viewModel: PosViewModel) {
     val totalRevenue = transactions.sumOf { it.grandTotal }
     val totalTrxCount = transactions.size
     val averageTicket = if (totalTrxCount > 0) totalRevenue / totalTrxCount else 0.0
-    val netProfit = totalProfit ?: 0.0
 
     Box(
         modifier = Modifier
@@ -183,778 +207,636 @@ fun DailyReportScreen(viewModel: PosViewModel) {
             contentPadding = PaddingValues(16.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-        // Web Laporan Owner (Firebase Cloud)
-        item {
-            val isCashier = currentUser?.role != UserRole.ADMIN
-            val separator = if (webDashboardUrl.contains("?")) "&" else "?"
-            val reportWebUrl = "$webDashboardUrl${separator}projectId=$firebaseProjectId&databaseId=$firebaseDatabaseId" +
-                    (if (isCashier) "&role=cashier" else "")
-
-            OwnerWebReportCard(
-                webUrl = reportWebUrl,
-                projectId = firebaseProjectId,
-                databaseId = firebaseDatabaseId,
-                cloudUser = cloudUser,
-                isSyncing = isCloudSyncing,
-                syncStatus = lastSyncStatus,
-                canSignOut = !isCashier,
-                onLoginGoogle = {
-                    viewModel.signInGoogleCloud(
-                        context = context,
-                        onSuccess = { Toast.makeText(context, "Berhasil masuk ke Firebase!", Toast.LENGTH_SHORT).show() },
-                        onError = { err -> Toast.makeText(context, err, Toast.LENGTH_LONG).show() }
-                    )
-                },
-                onSignOut = {
-                    viewModel.signOutGoogleCloud()
-                    Toast.makeText(context, "Keluar dari Firebase", Toast.LENGTH_SHORT).show()
-                },
-                onSyncNow = {
-                    viewModel.syncAllToCloud { success, msg ->
-                        Toast.makeText(context, msg, if (success) Toast.LENGTH_SHORT else Toast.LENGTH_LONG).show()
-                    }
-                },
-                onOpenWeb = {
-                    try {
-                        val browserIntent = Intent(Intent.ACTION_VIEW, Uri.parse(reportWebUrl))
-                        context.startActivity(browserIntent)
-                    } catch (e: Exception) {
-                        Toast.makeText(context, "Tidak dapat membuka browser: ${e.message}", Toast.LENGTH_SHORT).show()
-                    }
-                },
-                onShareWeb = {
-                    val shareText = "🌐 *Web Dashboard Laporan Owner - ${storeProfile.storeName}*\n\n" +
-                            "Owner dapat memantau omset, pesanan, dan laporan tutup kasir secara langsung melalui link berikut:\n" +
-                            "$reportWebUrl\n\n" +
-                            "• Project: $firebaseProjectId\n" +
-                            "• Database: $firebaseDatabaseId\n\n" +
-                            "_Buka link di browser HP, Tablet, atau Laptop kapan saja._"
-                    try {
-                        val sendIntent = Intent(Intent.ACTION_SEND).apply {
-                            putExtra(Intent.EXTRA_TEXT, shareText)
-                            type = "text/plain"
-                        }
-                        context.startActivity(Intent.createChooser(sendIntent, "Bagikan Link Web Laporan Owner"))
-                    } catch (e: Exception) {
-                        Toast.makeText(context, "Gagal membagikan link", Toast.LENGTH_SHORT).show()
-                    }
-                },
-                onOpenHostingSettings = {
-                    viewModel.selectTab(com.example.ui.MainTab.CLOUD_HOSTING)
-                }
-            )
-        }
-
-        // Date Range Filter Selector
-        item {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .horizontalScroll(rememberScrollState()),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                DateFilter.values().forEach { filter ->
-                    val isSelected = selectedFilter == filter
-                    FilterChip(
-                        selected = isSelected,
-                        onClick = { viewModel.setDateFilter(filter) },
-                        label = { Text(filter.label) },
-                        colors = FilterChipDefaults.filterChipColors(
-                            selectedContainerColor = MaterialTheme.colorScheme.primary,
-                            selectedLabelColor = Color.White
+        // Web Laporan & Omset Display
+        if (isAdmin) {
+            // Header: Laporan Keuangan Toko
+            item {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column {
+                        Text(
+                            text = "Laporan Keuangan Toko",
+                            style = MaterialTheme.typography.titleLarge,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onSurface
                         )
-                    )
+                        Text(
+                            text = "Laba Kotor, Pengeluaran, & Laba Bersih",
+                            fontSize = 12.sp,
+                            color = Color(0xFF64748B)
+                        )
+                    }
+
+                    Surface(
+                        shape = RoundedCornerShape(20.dp),
+                        color = Color(0xFFDCFCE7),
+                        border = BorderStroke(1.dp, Color(0xFF86EFAC))
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp)
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(7.dp)
+                                    .clip(CircleShape)
+                                    .background(Color(0xFF16A34A))
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                text = "Live RTDB",
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Color(0xFF15803D)
+                            )
+                        }
+                    }
                 }
             }
-        }
 
-        // WhatsApp Share Button to Owner (Prominent Callout)
-        item {
-            Button(
-                onClick = { showWhatsAppDialog = true },
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = Color(0xFF25D366),
-                    contentColor = Color.White
-                ),
-                shape = RoundedCornerShape(12.dp),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(50.dp)
-                    .testTag("send_whatsapp_report_button")
-            ) {
-                Icon(
-                    imageVector = Icons.Default.Chat,
-                    contentDescription = null,
-                    modifier = Modifier.size(20.dp)
-                )
-                Spacer(modifier = Modifier.width(8.dp))
-                Text(
-                    text = "Kirim Laporan ke Owner via WhatsApp",
-                    fontSize = 14.sp,
-                    fontWeight = FontWeight.Bold
-                )
-            }
-        }
-
-        // Live Real-Time Indicator Bar
-        item {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .background(Color(0xFFDCFCE7), RoundedCornerShape(8.dp))
-                    .padding(horizontal = 12.dp, vertical = 8.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Box(
+            // Date Range Filter Selector
+            item {
+                Row(
                     modifier = Modifier
-                        .size(8.dp)
-                        .clip(CircleShape)
-                        .background(Color(0xFF16A34A))
-                )
-                Spacer(modifier = Modifier.width(8.dp))
-                Text(
-                    text = "Laporan Real-Time sinkron langsung dengan transaksi kasir",
-                    fontSize = 11.sp,
-                    fontWeight = FontWeight.Medium,
-                    color = Color(0xFF166534)
-                )
+                        .fillMaxWidth()
+                        .horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    DateFilter.values().forEach { filter ->
+                        val isSelected = selectedFilter == filter
+                        FilterChip(
+                            selected = isSelected,
+                            onClick = { viewModel.setDateFilter(filter) },
+                            label = { Text(filter.label, fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal) },
+                            colors = FilterChipDefaults.filterChipColors(
+                                selectedContainerColor = MaterialTheme.colorScheme.primary,
+                                selectedLabelColor = Color.White
+                            )
+                        )
+                    }
+                }
             }
-        }
 
-        // Card: Pelacakan Database & Sinkronisasi Otomatis
-        item {
-            Card(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .testTag("card_database_auto_sync_tracker"),
-                shape = RoundedCornerShape(12.dp),
-                colors = CardDefaults.cardColors(containerColor = Color(0xFFF8FAFC)),
-                border = BorderStroke(1.dp, Color(0xFFE2E8F0))
-            ) {
-                Column(modifier = Modifier.padding(14.dp)) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
+            // 1. KARTU LABA KOTOR
+            item {
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("card_laba_kotor"),
+                    shape = RoundedCornerShape(16.dp),
+                    colors = CardDefaults.cardColors(containerColor = Color(0xFF0F172A)),
+                    border = BorderStroke(1.dp, Color(0xFF1E293B)),
+                    elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+                ) {
+                    Column(modifier = Modifier.padding(18.dp)) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Surface(
+                                    shape = CircleShape,
+                                    color = Color(0xFF1E3A8A),
+                                    modifier = Modifier.size(42.dp)
+                                ) {
+                                    Box(contentAlignment = Alignment.Center) {
+                                        Icon(
+                                            imageVector = Icons.Default.TrendingUp,
+                                            contentDescription = null,
+                                            tint = Color(0xFF60A5FA),
+                                            modifier = Modifier.size(24.dp)
+                                        )
+                                    }
+                                }
+                                Spacer(modifier = Modifier.width(12.dp))
+                                Column {
+                                    Text(
+                                        text = "LABA KOTOR",
+                                        fontSize = 13.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = Color(0xFF94A3B8),
+                                        letterSpacing = 0.8.sp
+                                    )
+                                    Text(
+                                        text = "Penjualan kotor dikurangi modal HPP",
+                                        fontSize = 11.sp,
+                                        color = Color(0xFF64748B)
+                                    )
+                                }
+                            }
+
+                            Surface(
+                                shape = RoundedCornerShape(8.dp),
+                                color = Color(0xFF1E293B)
+                            ) {
+                                Text(
+                                    text = selectedFilter.label,
+                                    fontSize = 10.5.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = Color(0xFF94A3B8),
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                                )
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(14.dp))
+
+                        Text(
+                            text = BluetoothPrinterManager.formatRupiah(grossProfit),
+                            fontSize = 28.sp,
+                            fontWeight = FontWeight.Black,
+                            color = Color(0xFF38BDF8),
+                            modifier = Modifier.testTag("text_laba_kotor_amount")
+                        )
+
+                        Spacer(modifier = Modifier.height(8.dp))
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            Surface(
+                                shape = RoundedCornerShape(8.dp),
+                                color = Color(0xFF1E293B),
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Column(modifier = Modifier.padding(8.dp)) {
+                                    Text("Penjualan Kotor (Omset):", fontSize = 10.sp, color = Color(0xFF94A3B8))
+                                    Text(BluetoothPrinterManager.formatRupiah(totalRevenue), fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color(0xFFF1F5F9))
+                                }
+                            }
+                            val cogs = if (totalRevenue >= grossProfit) totalRevenue - grossProfit else 0.0
+                            Surface(
+                                shape = RoundedCornerShape(8.dp),
+                                color = Color(0xFF1E293B),
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Column(modifier = Modifier.padding(8.dp)) {
+                                    Text("Modal Produk (HPP):", fontSize = 10.sp, color = Color(0xFF94A3B8))
+                                    Text(BluetoothPrinterManager.formatRupiah(cogs), fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color(0xFFF1F5F9))
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // 2. KARTU PENGELUARAN (BEBAN OPERASIONAL)
+            item {
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("card_pengeluaran"),
+                    shape = RoundedCornerShape(16.dp),
+                    colors = CardDefaults.cardColors(containerColor = Color(0xFF0F172A)),
+                    border = BorderStroke(1.dp, Color(0xFF3F1D28)),
+                    elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+                ) {
+                    Column(modifier = Modifier.padding(18.dp)) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Surface(
+                                    shape = CircleShape,
+                                    color = Color(0xFF4C0519),
+                                    modifier = Modifier.size(42.dp)
+                                ) {
+                                    Box(contentAlignment = Alignment.Center) {
+                                        Icon(
+                                            imageVector = Icons.Default.Receipt,
+                                            contentDescription = null,
+                                            tint = Color(0xFFFB7185),
+                                            modifier = Modifier.size(24.dp)
+                                        )
+                                    }
+                                }
+                                Spacer(modifier = Modifier.width(12.dp))
+                                Column {
+                                    Text(
+                                        text = "PENGELUARAN",
+                                        fontSize = 13.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = Color(0xFFFDA4AF),
+                                        letterSpacing = 0.8.sp
+                                    )
+                                    Text(
+                                        text = "Biaya operasional & beban toko",
+                                        fontSize = 11.sp,
+                                        color = Color(0xFF94A3B8)
+                                    )
+                                }
+                            }
+
+                            Surface(
+                                shape = RoundedCornerShape(8.dp),
+                                color = Color(0xFF4C0519).copy(alpha = 0.6f)
+                            ) {
+                                Text(
+                                    text = "${expensesList.size} Catatan",
+                                    fontSize = 10.5.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color(0xFFFECDD3),
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                                )
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(14.dp))
+
+                        Text(
+                            text = BluetoothPrinterManager.formatRupiah(totalExpenses),
+                            fontSize = 28.sp,
+                            fontWeight = FontWeight.Black,
+                            color = Color(0xFFFB7185),
+                            modifier = Modifier.testTag("text_pengeluaran_amount")
+                        )
+
+                        Spacer(modifier = Modifier.height(12.dp))
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Button(
+                                onClick = { showAddExpenseDialog = true },
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .height(38.dp)
+                                    .testTag("btn_add_expense"),
+                                shape = RoundedCornerShape(8.dp),
+                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFE11D48))
+                            ) {
+                                Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(16.dp), tint = Color.White)
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text("Catat Pengeluaran", fontSize = 11.5.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                            }
+
+                            if (expensesList.isNotEmpty()) {
+                                OutlinedButton(
+                                    onClick = { showExpensesListDialog = true },
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .height(38.dp)
+                                        .testTag("btn_view_expenses"),
+                                    shape = RoundedCornerShape(8.dp),
+                                    border = BorderStroke(1.dp, Color(0xFFFB7185)),
+                                    colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFFFB7185))
+                                ) {
+                                    Icon(Icons.Default.Assessment, contentDescription = null, modifier = Modifier.size(16.dp))
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text("Rincian Beban", fontSize = 11.5.sp, fontWeight = FontWeight.SemiBold)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // 3. KARTU LABA BERSIH (HERO NET PROFIT)
+            item {
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("card_laba_bersih_hero"),
+                    shape = RoundedCornerShape(16.dp),
+                    colors = CardDefaults.cardColors(containerColor = Color(0xFF042F2E)),
+                    border = BorderStroke(1.5.dp, Color(0xFF0D9488)),
+                    elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)
+                ) {
+                    Column(
+                        modifier = Modifier.padding(22.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
                     ) {
+                        Surface(
+                            shape = CircleShape,
+                            color = Color(0xFF134E4A),
+                            modifier = Modifier.size(54.dp)
+                        ) {
+                            Box(contentAlignment = Alignment.Center) {
+                                Icon(
+                                    imageVector = Icons.Default.Payments,
+                                    contentDescription = null,
+                                    tint = Color(0xFF5EEAD4),
+                                    modifier = Modifier.size(28.dp)
+                                )
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(12.dp))
+
+                        Text(
+                            text = "LABA BERSIH",
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color(0xFF99F6E4),
+                            letterSpacing = 1.sp
+                        )
+
+                        Spacer(modifier = Modifier.height(6.dp))
+
+                        Text(
+                            text = BluetoothPrinterManager.formatRupiah(netProfit),
+                            fontSize = 34.sp,
+                            fontWeight = FontWeight.Black,
+                            color = Color(0xFF2DD4BF),
+                            modifier = Modifier.testTag("text_laba_bersih_amount")
+                        )
+
+                        Spacer(modifier = Modifier.height(8.dp))
+
+                        Surface(
+                            shape = RoundedCornerShape(8.dp),
+                            color = Color(0xFF115E59)
+                        ) {
+                            Text(
+                                text = "Laba Kotor (${BluetoothPrinterManager.formatRupiah(grossProfit)}) − Pengeluaran (${BluetoothPrinterManager.formatRupiah(totalExpenses)})",
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                color = Color(0xFFCCFBF1),
+                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
+                            )
+                        }
+
+                        Spacer(modifier = Modifier.height(18.dp))
+
+                        // Action Buttons: WhatsApp & Print
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            Button(
+                                onClick = { showWhatsAppDialog = true },
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .height(44.dp)
+                                    .testTag("btn_share_laba_wa"),
+                                shape = RoundedCornerShape(10.dp),
+                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF25D366))
+                            ) {
+                                Icon(Icons.Default.Chat, contentDescription = null, modifier = Modifier.size(18.dp), tint = Color.White)
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text("WhatsApp Owner", fontSize = 11.5.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                            }
+
+                            Button(
+                                onClick = {
+                                    viewModel.printProfitExpenseReceipt(
+                                        grossProfit = grossProfit,
+                                        expenses = totalExpenses,
+                                        netProfit = netProfit,
+                                        grossSales = totalRevenue
+                                    ) { ok, msg ->
+                                        Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
+                                    }
+                                },
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .height(44.dp)
+                                    .testTag("btn_print_laba"),
+                                shape = RoundedCornerShape(10.dp),
+                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2563EB))
+                            ) {
+                                Icon(Icons.Default.Print, contentDescription = null, modifier = Modifier.size(18.dp), tint = Color.White)
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text("Cetak Struk", fontSize = 11.5.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Callout Banner: Penyimpanan Database Arsip Laporan Dipindahkan ke Hosting
+            item {
+                val separator = if (webDashboardUrl.contains("?")) "&" else "?"
+                val reportWebUrl = "$webDashboardUrl${separator}projectId=$firebaseProjectId&databaseId=$firebaseDatabaseId"
+
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(14.dp),
+                    colors = CardDefaults.cardColors(containerColor = Color(0xFFF8FAFC)),
+                    border = BorderStroke(1.dp, Color(0xFFE2E8F0))
+                ) {
+                    Column(modifier = Modifier.padding(16.dp)) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Surface(
                                 shape = CircleShape,
-                                color = Color(0xFFDBEAFE),
-                                modifier = Modifier.size(34.dp)
+                                color = Color(0xFFEFF6FF),
+                                modifier = Modifier.size(36.dp)
                             ) {
                                 Box(contentAlignment = Alignment.Center) {
                                     Icon(
-                                        imageVector = Icons.Default.Storage,
+                                        imageVector = Icons.Default.CloudDone,
                                         contentDescription = null,
                                         tint = Color(0xFF2563EB),
-                                        modifier = Modifier.size(18.dp)
+                                        modifier = Modifier.size(20.dp)
                                     )
                                 }
                             }
                             Spacer(modifier = Modifier.width(10.dp))
                             Column {
                                 Text(
-                                    text = "Penyimpanan Database & Sinkron Otomatis",
+                                    text = "Penyimpanan Database & Arsip di Hosting",
                                     fontSize = 13.sp,
                                     fontWeight = FontWeight.Bold,
                                     color = Color(0xFF0F172A)
                                 )
                                 Text(
-                                    text = "Room DB (Lokal) & Firebase Realtime Database (Cloud Live)",
+                                    text = "Arsip laporan harian & database tersimpan di Cloud Hosting",
                                     fontSize = 11.sp,
                                     color = Color(0xFF64748B)
                                 )
                             }
                         }
 
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text(
-                                text = if (isAutoSyncActive) "Auto-Sync ON" else "Auto-Sync OFF",
-                                fontSize = 10.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = if (isAutoSyncActive) Color(0xFF059669) else Color(0xFF64748B)
-                            )
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Switch(
-                                checked = isAutoSyncActive,
-                                onCheckedChange = { viewModel.toggleAutoSync(it) },
-                                modifier = Modifier
-                                    .scale(0.8f)
-                                    .testTag("switch_auto_sync")
-                            )
-                        }
-                    }
+                        Spacer(modifier = Modifier.height(12.dp))
 
-                    Spacer(modifier = Modifier.height(10.dp))
-
-                    // Counter stats row
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        Surface(
-                            modifier = Modifier.weight(1f),
-                            shape = RoundedCornerShape(10.dp),
-                            color = Color.White,
-                            border = BorderStroke(1.dp, Color(0xFFE2E8F0))
-                        ) {
-                            Column(modifier = Modifier.padding(10.dp)) {
-                                Text(text = "💾 Room DB Lokal", fontSize = 10.sp, color = Color(0xFF64748B))
-                                Text(text = "${transactions.size} Transaksi", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = Color(0xFF0F172A))
-                            }
-                        }
-
-                        Surface(
-                            modifier = Modifier.weight(1f),
-                            shape = RoundedCornerShape(10.dp),
-                            color = Color(0xFFECFDF5),
-                            border = BorderStroke(1.dp, Color(0xFFA7F3D0))
-                        ) {
-                            Column(modifier = Modifier.padding(10.dp)) {
-                                Text(text = "🟢 Tersinkron Cloud", fontSize = 10.sp, color = Color(0xFF047857))
-                                Text(text = "$syncedCount Transaksi", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = Color(0xFF065F46))
-                            }
-                        }
-
-                        Surface(
-                            modifier = Modifier.weight(1f),
-                            shape = RoundedCornerShape(10.dp),
-                            color = if (unsyncedCount > 0) Color(0xFFFFFBEB) else Color.White,
-                            border = BorderStroke(1.dp, if (unsyncedCount > 0) Color(0xFFFDE68A) else Color(0xFFE2E8F0))
-                        ) {
-                            Column(modifier = Modifier.padding(10.dp)) {
-                                Text(text = "🟠 Antrean Tertunda", fontSize = 10.sp, color = if (unsyncedCount > 0) Color(0xFFB45309) else Color(0xFF64748B))
-                                Text(text = "$unsyncedCount Transaksi", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = if (unsyncedCount > 0) Color(0xFFB45309) else Color(0xFF0F172A))
-                            }
-                        }
-                    }
-
-                    Spacer(modifier = Modifier.height(10.dp))
-
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        Button(
-                            onClick = {
-                                viewModel.testCloudConnection { ok, msg ->
-                                    try {
-                                        Toast.makeText(context, msg, if (ok) Toast.LENGTH_SHORT else Toast.LENGTH_LONG).show()
-                                    } catch (e: Exception) {
-                                        Log.e("DailyReportScreen", "Toast error", e)
-                                    }
-                                }
-                            },
-                            enabled = !isCloudSyncing,
-                            modifier = Modifier
-                                .weight(1f)
-                                .height(38.dp)
-                                .testTag("btn_test_cloud_connection"),
-                            shape = RoundedCornerShape(8.dp),
-                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0284C7))
-                        ) {
-                            if (isCloudSyncing) {
-                                CircularProgressIndicator(
-                                    modifier = Modifier.size(14.dp),
-                                    color = Color.White,
-                                    strokeWidth = 2.dp
-                                )
-                                Spacer(modifier = Modifier.width(6.dp))
-                                Text("Memeriksa...", fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
-                            } else {
-                                Icon(Icons.Default.Cloud, contentDescription = null, modifier = Modifier.size(15.dp))
-                                Spacer(modifier = Modifier.width(4.dp))
-                                Text("Cek Koneksi Cloud", fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
-                            }
-                        }
-
-                        Button(
-                            onClick = {
-                                viewModel.syncPendingTransactions { success, msg ->
-                                    try {
-                                        Toast.makeText(context, msg ?: "Sinkron selesai", if (success) Toast.LENGTH_SHORT else Toast.LENGTH_LONG).show()
-                                    } catch (e: Exception) {
-                                        Log.e("DailyReportScreen", "Toast error", e)
-                                    }
-                                }
-                            },
-                            enabled = !isCloudSyncing,
-                            modifier = Modifier
-                                .weight(1.3f)
-                                .height(38.dp)
-                                .testTag("btn_sync_pending_now"),
-                            shape = RoundedCornerShape(8.dp),
-                            colors = ButtonDefaults.buttonColors(containerColor = if (unsyncedCount > 0) Color(0xFFD97706) else Color(0xFF0F172A))
-                        ) {
-                            Icon(Icons.Default.CloudSync, contentDescription = null, modifier = Modifier.size(15.dp))
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Text(
-                                text = if (isCloudSyncing) "Menyinkronkan..." else if (unsyncedCount > 0) "Sinkronkan ($unsyncedCount)" else "Sinkronkan Semua",
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.Bold
-                            )
-                        }
-                    }
-                }
-            }
-        }
-
-        // 💾 DATABASE ROOM LAPORAN (ARSIP LOKAL SQLITE - TABEL daily_reports)
-        item {
-            RoomDailyReportArchiveCard(
-                reports = allDailyReports,
-                isGenerating = isGeneratingReport,
-                searchQuery = searchReportDate,
-                onSearchChange = { searchReportDate = it },
-                onGenerateToday = {
-                    viewModel.generateOrRefreshTodayReport { success, msg ->
-                        Toast.makeText(context, msg, if (success) Toast.LENGTH_SHORT else Toast.LENGTH_LONG).show()
-                    }
-                },
-                onViewDetail = { report ->
-                    selectedDailyReportForDetail = report
-                },
-                onShareWhatsApp = { report ->
-                    val text = BluetoothPrinterManager.generateDailyReportPlainText(storeProfile, report)
-                    try {
-                        val uri = Uri.parse("https://api.whatsapp.com/send?text=" + URLEncoder.encode(text, "UTF-8"))
-                        context.startActivity(Intent(Intent.ACTION_VIEW, uri))
-                    } catch (e: Exception) {
-                        Toast.makeText(context, "WhatsApp tidak terinstall", Toast.LENGTH_SHORT).show()
-                    }
-                },
-                onDelete = { report ->
-                    viewModel.deleteDailyReport(report) { success ->
-                        if (success) Toast.makeText(context, "Laporan ${report.date} dihapus dari Room", Toast.LENGTH_SHORT).show()
-                    }
-                }
-            )
-        }
-
-        // 4 KPI Summary Cards
-        item {
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
-                    ReportKpiCard(
-                        title = "Total Omset (Penjualan)",
-                        value = BluetoothPrinterManager.formatRupiah(totalRevenue),
-                        icon = Icons.Default.Payments,
-                        iconColor = Color(0xFF1E40AF),
-                        containerColor = Color(0xFFDBEAFE),
-                        modifier = Modifier.weight(1f)
-                    )
-                    ReportKpiCard(
-                        title = "Keuntungan Bersih",
-                        value = BluetoothPrinterManager.formatRupiah(netProfit),
-                        icon = Icons.Default.TrendingUp,
-                        iconColor = Color(0xFF15803D),
-                        containerColor = Color(0xFFDCFCE7),
-                        modifier = Modifier.weight(1f)
-                    )
-                }
-
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
-                    ReportKpiCard(
-                        title = "Total Transaksi",
-                        value = "$totalTrxCount struk",
-                        icon = Icons.Default.Receipt,
-                        iconColor = Color(0xFFB45309),
-                        containerColor = Color(0xFFFEF3C7),
-                        modifier = Modifier.weight(1f)
-                    )
-                    ReportKpiCard(
-                        title = "Rata-rata / Struk",
-                        value = BluetoothPrinterManager.formatRupiah(averageTicket),
-                        icon = Icons.Default.ShoppingBag,
-                        iconColor = Color(0xFF0F766E),
-                        containerColor = Color(0xFFCCFBF1),
-                        modifier = Modifier.weight(1f)
-                    )
-                }
-            }
-        }
-
-        // Payment Method Breakdown
-        item {
-            Card(
-                shape = RoundedCornerShape(12.dp),
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Column(modifier = Modifier.padding(16.dp)) {
-                    Text(
-                        text = "Metode Pembayaran",
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold
-                    )
-                    Spacer(modifier = Modifier.height(10.dp))
-
-                    if (paymentStats.isEmpty()) {
-                        Text(
-                            text = "Belum ada transaksi di periode ini",
-                            fontSize = 12.sp,
-                            color = Color(0xFF94A3B8)
-                        )
-                    } else {
-                        paymentStats.forEach { stat ->
-                            val percent = if (totalRevenue > 0) (stat.totalAmount / totalRevenue).toFloat() else 0f
-                            Column(modifier = Modifier.padding(vertical = 4.dp)) {
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.SpaceBetween
-                                ) {
-                                    Text(
-                                        text = "${stat.paymentMethod} (${stat.count}x)",
-                                        fontSize = 13.sp,
-                                        fontWeight = FontWeight.Medium
-                                    )
-                                    Text(
-                                        text = BluetoothPrinterManager.formatRupiah(stat.totalAmount),
-                                        fontSize = 13.sp,
-                                        fontWeight = FontWeight.Bold
-                                    )
-                                }
-                                Spacer(modifier = Modifier.height(4.dp))
-                                LinearProgressIndicator(
-                                    progress = { percent },
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .height(6.dp)
-                                        .clip(RoundedCornerShape(3.dp)),
-                                    color = MaterialTheme.colorScheme.primary,
-                                    trackColor = Color(0xFFE2E8F0)
-                                )
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
-        // Top Selling Products
-        item {
-            Card(
-                shape = RoundedCornerShape(12.dp),
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Column(modifier = Modifier.padding(16.dp)) {
-                    Text(
-                        text = "Produk Terlaris",
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold
-                    )
-                    Spacer(modifier = Modifier.height(10.dp))
-
-                    if (topProducts.isEmpty()) {
-                        Text(
-                            text = "Belum ada produk terjual",
-                            fontSize = 12.sp,
-                            color = Color(0xFF94A3B8)
-                        )
-                    } else {
-                        val maxSold = topProducts.firstOrNull()?.totalSold ?: 1
-                        topProducts.forEachIndexed { index, prod ->
-                            TopProductItemRow(rank = index + 1, item = prod, maxSold = maxSold)
-                        }
-                    }
-                }
-            }
-        }
-
-        // Shift Closings History (Riwayat Tutup Kasir)
-        if (shiftClosings.isNotEmpty()) {
-            item {
-                Card(
-                    shape = RoundedCornerShape(12.dp),
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                    elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Column(modifier = Modifier.padding(16.dp)) {
                         Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            modifier = Modifier.fillMaxWidth()
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Icon(imageVector = Icons.Default.LockClock, contentDescription = null, tint = Color(0xFFDC2626), modifier = Modifier.size(20.dp))
-                                Spacer(modifier = Modifier.width(6.dp))
-                                Text(
-                                    text = "Riwayat Tutup Kasir / Shift",
-                                    style = MaterialTheme.typography.titleMedium,
-                                    fontWeight = FontWeight.Bold
-                                )
-                            }
-                            Surface(
+                            Button(
+                                onClick = { viewModel.selectTab(com.example.ui.MainTab.CLOUD_HOSTING) },
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .height(40.dp)
+                                    .testTag("btn_go_to_hosting_tab"),
                                 shape = RoundedCornerShape(8.dp),
-                                color = Color(0xFFF0FDF4),
-                                border = BorderStroke(1.dp, Color(0xFF86EFAC))
+                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0F172A))
                             ) {
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
-                                ) {
-                                    Icon(Icons.Default.CloudDone, contentDescription = null, tint = Color(0xFF16A34A), modifier = Modifier.size(12.dp))
-                                    Spacer(modifier = Modifier.width(4.dp))
-                                    Text("Online Real-Time", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = Color(0xFF15803D))
-                                }
+                                Icon(Icons.Default.Storage, contentDescription = null, modifier = Modifier.size(16.dp))
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text("Buka Tab Hosting", fontSize = 11.5.sp, fontWeight = FontWeight.SemiBold)
                             }
-                        }
-                        Spacer(modifier = Modifier.height(8.dp))
 
-                        // Banner Akses Web Realtime DB Online
-                        Surface(
-                            shape = RoundedCornerShape(10.dp),
-                            color = Color(0xFF0F172A),
-                            border = BorderStroke(1.dp, Color(0xFF1E3A8A)),
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(vertical = 4.dp)
-                        ) {
-                            Column(modifier = Modifier.padding(10.dp)) {
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                    modifier = Modifier.fillMaxWidth()
-                                ) {
-                                    Row(verticalAlignment = Alignment.CenterVertically) {
-                                        Surface(
-                                            shape = CircleShape,
-                                            color = Color(0xFF10B981),
-                                            modifier = Modifier.size(8.dp)
-                                        ) {}
-                                        Spacer(modifier = Modifier.width(6.dp))
-                                        Text(
-                                            text = "Portal Realtime DB Online",
-                                            fontSize = 12.sp,
-                                            fontWeight = FontWeight.Bold,
-                                            color = Color(0xFF38BDF8)
-                                        )
+                            Button(
+                                onClick = {
+                                    try {
+                                        context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(reportWebUrl)))
+                                    } catch (e: Exception) {
+                                        clipboardManager.setText(AnnotatedString(reportWebUrl))
+                                        Toast.makeText(context, "URL disalin: $reportWebUrl", Toast.LENGTH_LONG).show()
                                     }
-                                    Text(
-                                        text = "foodrock-report-default-rtdb",
-                                        fontSize = 10.sp,
-                                        color = Color(0xFF94A3B8)
-                                    )
-                                }
-                                Spacer(modifier = Modifier.height(4.dp))
-                                Text(
-                                    text = "Laporan tutup kasir & selisih uang kas ter-update instan di web tanpa perlu refresh browser.",
-                                    fontSize = 11.sp,
-                                    color = Color(0xFFCBD5E1)
-                                )
-                                Spacer(modifier = Modifier.height(8.dp))
-                                // Primary Action: Buka Web Tutup Toko (RTDB Only)
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                                ) {
-                                    Button(
-                                        onClick = {
-                                            val baseUrl = webDashboardUrl.removeSuffix("/").removeSuffix("/index.html").removeSuffix("/owner.html").removeSuffix("/rtdb-laporan.html").removeSuffix("/tutup-toko.html")
-                                            val tutupTokoUrl = "$baseUrl/tutup-toko.html?projectId=$firebaseProjectId&databaseId=$firebaseDatabaseId"
-                                            try {
-                                                val intent = Intent(Intent.ACTION_VIEW, Uri.parse(tutupTokoUrl))
-                                                context.startActivity(intent)
-                                            } catch (e: Exception) {
-                                                clipboardManager.setText(AnnotatedString(tutupTokoUrl))
-                                                Toast.makeText(context, "URL disalin: $tutupTokoUrl", Toast.LENGTH_LONG).show()
-                                            }
-                                        },
-                                        modifier = Modifier
-                                            .weight(1f)
-                                            .testTag("btn_open_tutup_toko_web"),
-                                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFEA580C)),
-                                        shape = RoundedCornerShape(8.dp),
-                                        contentPadding = PaddingValues(vertical = 7.dp, horizontal = 10.dp)
-                                    ) {
-                                        Icon(Icons.Default.Assessment, contentDescription = null, modifier = Modifier.size(15.dp), tint = Color.White)
-                                        Spacer(modifier = Modifier.width(6.dp))
-                                        Text("Web Tutup Toko (RTDB)", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color.White)
-                                    }
-                                    OutlinedButton(
-                                        onClick = {
-                                            val baseUrl = webDashboardUrl.removeSuffix("/").removeSuffix("/index.html").removeSuffix("/owner.html").removeSuffix("/rtdb-laporan.html").removeSuffix("/tutup-toko.html")
-                                            val tutupTokoUrl = "$baseUrl/tutup-toko.html?projectId=$firebaseProjectId&databaseId=$firebaseDatabaseId"
-                                            clipboardManager.setText(AnnotatedString(tutupTokoUrl))
-                                            Toast.makeText(context, "Link Web Tutup Toko Disalin!", Toast.LENGTH_SHORT).show()
-                                        },
-                                        modifier = Modifier.testTag("btn_copy_tutup_toko_link"),
-                                        shape = RoundedCornerShape(8.dp),
-                                        border = BorderStroke(1.dp, Color(0xFF334155)),
-                                        contentPadding = PaddingValues(vertical = 7.dp, horizontal = 10.dp)
-                                    ) {
-                                        Icon(Icons.Default.ContentCopy, contentDescription = null, modifier = Modifier.size(14.dp), tint = Color(0xFF94A3B8))
-                                        Spacer(modifier = Modifier.width(4.dp))
-                                        Text("Salin Link", fontSize = 11.sp, color = Color(0xFFE2E8F0))
-                                    }
-                                }
-                                Spacer(modifier = Modifier.height(6.dp))
-                                // Secondary Action: Web RTDB Lengkap
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                                ) {
-                                    Button(
-                                        onClick = {
-                                            val baseUrl = webDashboardUrl.removeSuffix("/").removeSuffix("/index.html").removeSuffix("/owner.html").removeSuffix("/rtdb-laporan.html").removeSuffix("/tutup-toko.html")
-                                            val rtdbWebUrl = "$baseUrl/rtdb-laporan.html?projectId=$firebaseProjectId&databaseId=$firebaseDatabaseId"
-                                            try {
-                                                val intent = Intent(Intent.ACTION_VIEW, Uri.parse(rtdbWebUrl))
-                                                context.startActivity(intent)
-                                            } catch (e: Exception) {
-                                                clipboardManager.setText(AnnotatedString(rtdbWebUrl))
-                                                Toast.makeText(context, "URL disalin: $rtdbWebUrl", Toast.LENGTH_LONG).show()
-                                            }
-                                        },
-                                        modifier = Modifier
-                                            .weight(1f)
-                                            .testTag("btn_open_rtdb_web"),
-                                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0369A1)),
-                                        shape = RoundedCornerShape(8.dp),
-                                        contentPadding = PaddingValues(vertical = 6.dp, horizontal = 10.dp)
-                                    ) {
-                                        Icon(Icons.Default.OpenInBrowser, contentDescription = null, modifier = Modifier.size(14.dp), tint = Color.White)
-                                        Spacer(modifier = Modifier.width(6.dp))
-                                        Text("Portal RTDB Lengkap", fontSize = 11.sp, fontWeight = FontWeight.SemiBold, color = Color.White)
-                                    }
-                                }
+                                },
+                                modifier = Modifier
+                                    .weight(1.2f)
+                                    .height(40.dp)
+                                    .testTag("btn_open_web_hosting_chrome"),
+                                shape = RoundedCornerShape(8.dp),
+                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFEA580C))
+                            ) {
+                                Icon(Icons.Default.OpenInBrowser, contentDescription = null, modifier = Modifier.size(16.dp))
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text("Web Online Chrome", fontSize = 11.5.sp, fontWeight = FontWeight.Bold)
                             }
-                        }
-                        Spacer(modifier = Modifier.height(6.dp))
-
-                        shiftClosings.take(5).forEach { closing ->
-                            ShiftClosingRowItem(closing = closing)
-                            HorizontalDivider(modifier = Modifier.padding(vertical = 6.dp), color = Color(0xFFF1F5F9))
                         }
                     }
                 }
             }
         }
 
-        // Transaction History Header with Sync Filters
-        item {
-            Column(modifier = Modifier.fillMaxWidth()) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
+        // Tampilan Riwayat Pesanan Khusus Kasir
+        if (!isAdmin) {
+            // Transaction History Header with Consumer Order Search
+            item {
+                Column(modifier = Modifier.fillMaxWidth()) {
                     Text(
-                        text = "Pelacakan Transaksi (${filteredTransactions.size})",
+                        text = "Riwayat Pesanan Konsumen (${filteredTransactions.size})",
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.Bold
                     )
                     Text(
-                        text = "Klik baris untuk lihat struk",
+                        text = "Ketuk pesanan untuk melihat detail & cetak ulang struk",
                         fontSize = 11.sp,
                         color = Color(0xFF64748B)
                     )
-                }
 
-                Spacer(modifier = Modifier.height(8.dp))
+                    Spacer(modifier = Modifier.height(10.dp))
 
-                // Sync status filter tabs
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .horizontalScroll(rememberScrollState()),
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
-                ) {
-                    FilterChip(
-                        selected = syncStatusFilter == "ALL",
-                        onClick = { syncStatusFilter = "ALL" },
-                        label = { Text("Semua (${transactions.size})", fontSize = 11.sp) },
-                        colors = FilterChipDefaults.filterChipColors(
-                            selectedContainerColor = Color(0xFF0F172A),
-                            selectedLabelColor = Color.White
-                        )
-                    )
-                    FilterChip(
-                        selected = syncStatusFilter == "SYNCED",
-                        onClick = { syncStatusFilter = "SYNCED" },
-                        label = { Text("🟢 Tersinkron (${transactions.count { it.isSynced }})", fontSize = 11.sp) },
-                        colors = FilterChipDefaults.filterChipColors(
-                            selectedContainerColor = Color(0xFF059669),
-                            selectedLabelColor = Color.White
-                        )
-                    )
-                    FilterChip(
-                        selected = syncStatusFilter == "UNSYNCED",
-                        onClick = { syncStatusFilter = "UNSYNCED" },
-                        label = { Text("🟠 Tertunda (${transactions.count { !it.isSynced }})", fontSize = 11.sp) },
-                        colors = FilterChipDefaults.filterChipColors(
-                            selectedContainerColor = Color(0xFFD97706),
-                            selectedLabelColor = Color.White
-                        )
-                    )
-                }
-            }
-        }
-
-        // Transaction History List
-        if (filteredTransactions.isEmpty()) {
-            item {
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(24.dp),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text(
-                        text = if (syncStatusFilter == "UNSYNCED") {
-                            "Semua transaksi telah tersinkronkan ke database!"
-                        } else {
-                            "Tidak ada transaksi pada filter yang dipilih"
+                    // Search Bar for Consumer Orders
+                    OutlinedTextField(
+                        value = orderSearchQuery,
+                        onValueChange = { orderSearchQuery = it },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("input_search_orders"),
+                        placeholder = {
+                            Text(
+                                text = "Cari pesanan (no. struk, nama pelanggan, menu)...",
+                                fontSize = 12.sp,
+                                color = Color(0xFF94A3B8)
+                            )
                         },
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = Color(0xFF94A3B8)
+                        leadingIcon = {
+                            Icon(
+                                imageVector = Icons.Default.Search,
+                                contentDescription = null,
+                                tint = Color(0xFF64748B),
+                                modifier = Modifier.size(18.dp)
+                            )
+                        },
+                        trailingIcon = {
+                            if (orderSearchQuery.isNotBlank()) {
+                                IconButton(
+                                    onClick = { orderSearchQuery = "" },
+                                    modifier = Modifier.size(28.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Close,
+                                        contentDescription = "Hapus",
+                                        tint = Color(0xFF64748B),
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                }
+                            }
+                        },
+                        singleLine = true,
+                        shape = RoundedCornerShape(10.dp),
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedContainerColor = MaterialTheme.colorScheme.surface,
+                            unfocusedContainerColor = MaterialTheme.colorScheme.surface,
+                            focusedBorderColor = MaterialTheme.colorScheme.primary,
+                            unfocusedBorderColor = Color(0xFFCBD5E1)
+                        )
                     )
                 }
             }
-        } else {
-            items(filteredTransactions, key = { it.id }) { trx ->
-                TransactionRowCard(
-                    transaction = trx,
-                    onClick = { viewModel.showReceiptFor(trx) },
-                    onSyncClick = {
-                        viewModel.syncSingleTransaction(trx) { success, msg ->
-                            try {
-                                Toast.makeText(context, msg ?: "Status tersimpan", Toast.LENGTH_SHORT).show()
-                            } catch (e: Exception) {
-                                Log.e("DailyReportScreen", "Toast error", e)
-                            }
-                        }
+
+            // Transaction History List
+            if (filteredTransactions.isEmpty()) {
+                item {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(28.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = if (orderSearchQuery.isNotBlank()) "Tidak ditemukan pesanan dengan kata kunci \"$orderSearchQuery\""
+                            else "Belum ada riwayat pesanan konsumen pada periode ini",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = Color(0xFF94A3B8)
+                        )
                     }
-                )
+                }
+            } else {
+                items(filteredTransactions, key = { it.id }) { trx ->
+                    TransactionRowCard(
+                        transaction = trx,
+                        isAdmin = false,
+                        onClick = { viewModel.showReceiptFor(trx) },
+                        onSyncClick = null
+                    )
+                }
             }
         }
     }
 
     // Modal Kirim Laporan ke WhatsApp Owner
     if (showWhatsAppDialog) {
-        val reportMessage = viewModel.generateWhatsAppReportText(
-            transactions = transactions,
-            topProducts = topProducts,
-            paymentSummaries = paymentStats,
-            totalProfit = netProfit
+        val reportMessage = viewModel.generateWhatsAppProfitExpenseText(
+            grossProfit = grossProfit,
+            expenses = totalExpenses,
+            netProfit = netProfit,
+            grossSales = totalRevenue
         )
 
         WhatsAppSendDialog(
             initialPhone = storeProfile.ownerPhone,
             reportText = reportMessage,
             onDismiss = { showWhatsAppDialog = false }
+        )
+    }
+
+    // Modal Tambah Pengeluaran Baru
+    if (showAddExpenseDialog) {
+        AddExpenseDialog(
+            onDismiss = { showAddExpenseDialog = false },
+            onSave = { title, amount, category, notes ->
+                viewModel.addExpense(title, amount, category, notes)
+                showAddExpenseDialog = false
+                Toast.makeText(context, "Pengeluaran ${BluetoothPrinterManager.formatRupiah(amount)} berhasil dicatat", Toast.LENGTH_SHORT).show()
+            }
+        )
+    }
+
+    // Modal Rincian Pengeluaran Toko
+    if (showExpensesListDialog) {
+        ExpensesListDialog(
+            expenses = expensesList,
+            totalExpenses = totalExpenses,
+            onDelete = { exp ->
+                viewModel.deleteExpense(exp)
+                Toast.makeText(context, "Catatan pengeluaran dihapus", Toast.LENGTH_SHORT).show()
+            },
+            onDismiss = { showExpensesListDialog = false }
         )
     }
 
@@ -1508,6 +1390,7 @@ private fun TopProductItemRow(
 @Composable
 private fun TransactionRowCard(
     transaction: Transaction,
+    isAdmin: Boolean = true,
     onClick: () -> Unit,
     onSyncClick: (() -> Unit)? = null
 ) {
@@ -1518,7 +1401,7 @@ private fun TransactionRowCard(
         shape = RoundedCornerShape(12.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
         elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
-        border = BorderStroke(1.dp, if (transaction.isSynced) Color(0xFFE2E8F0) else Color(0xFFFDE68A)),
+        border = BorderStroke(1.dp, if (!isAdmin || transaction.isSynced) Color(0xFFE2E8F0) else Color(0xFFFDE68A)),
         modifier = Modifier
             .fillMaxWidth()
             .clickable(onClick = onClick)
@@ -1577,7 +1460,7 @@ private fun TransactionRowCard(
                         fontSize = 14.sp,
                         color = MaterialTheme.colorScheme.primary
                     )
-                    if (transaction.profitAmount > 0) {
+                    if (isAdmin && transaction.profitAmount > 0) {
                         Text(
                             text = "Laba: +${BluetoothPrinterManager.formatRupiah(transaction.profitAmount)}",
                             fontSize = 10.sp,
@@ -1590,64 +1473,103 @@ private fun TransactionRowCard(
 
             Spacer(modifier = Modifier.height(8.dp))
 
-            // Sync Status & Quick Sync Pill
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween
-            ) {
-                if (transaction.isSynced) {
-                    Surface(
-                        shape = RoundedCornerShape(6.dp),
-                        color = Color(0xFFDCFCE7),
-                        border = BorderStroke(1.dp, Color(0xFF86EFAC))
-                    ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
+            if (isAdmin) {
+                // Sync Status & Quick Sync Pill for Admin
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    if (transaction.isSynced) {
+                        Surface(
+                            shape = RoundedCornerShape(6.dp),
+                            color = Color(0xFFDCFCE7),
+                            border = BorderStroke(1.dp, Color(0xFF86EFAC))
                         ) {
-                            Icon(Icons.Default.CloudDone, contentDescription = null, tint = Color(0xFF16A34A), modifier = Modifier.size(12.dp))
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Text(
-                                text = "Tersinkron Cloud",
-                                fontSize = 10.sp,
-                                fontWeight = FontWeight.SemiBold,
-                                color = Color(0xFF166534)
-                            )
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
+                            ) {
+                                Icon(Icons.Default.CloudDone, contentDescription = null, tint = Color(0xFF16A34A), modifier = Modifier.size(12.dp))
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text(
+                                    text = "Tersinkron Cloud",
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = Color(0xFF166534)
+                                )
+                            }
+                        }
+                    } else {
+                        Surface(
+                            shape = RoundedCornerShape(6.dp),
+                            color = Color(0xFFFEF3C7),
+                            border = BorderStroke(1.dp, Color(0xFFFCD34D))
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
+                            ) {
+                                Icon(Icons.Default.CloudUpload, contentDescription = null, tint = Color(0xFFD97706), modifier = Modifier.size(12.dp))
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text(
+                                    text = "Menunggu Sinkron",
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = Color(0xFF92400E)
+                                )
+                            }
                         }
                     }
-                } else {
-                    Surface(
-                        shape = RoundedCornerShape(6.dp),
-                        color = Color(0xFFFEF3C7),
-                        border = BorderStroke(1.dp, Color(0xFFFCD34D))
-                    ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
+
+                    if (!transaction.isSynced && onSyncClick != null) {
+                        OutlinedButton(
+                            onClick = onSyncClick,
+                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                            modifier = Modifier.height(26.dp),
+                            shape = RoundedCornerShape(6.dp)
                         ) {
-                            Icon(Icons.Default.CloudUpload, contentDescription = null, tint = Color(0xFFD97706), modifier = Modifier.size(12.dp))
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Text(
-                                text = "Menunggu Sinkron",
-                                fontSize = 10.sp,
-                                fontWeight = FontWeight.SemiBold,
-                                color = Color(0xFF92400E)
-                            )
+                            Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(12.dp))
+                            Spacer(modifier = Modifier.width(3.dp))
+                            Text("Sinkronkan", fontSize = 10.sp, fontWeight = FontWeight.Bold)
                         }
                     }
                 }
-
-                if (!transaction.isSynced && onSyncClick != null) {
-                    OutlinedButton(
-                        onClick = onSyncClick,
-                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
-                        modifier = Modifier.height(26.dp),
-                        shape = RoundedCornerShape(6.dp)
+            } else {
+                // Cashier consumer order footer
+                val totalQty = if (transaction.totalItemsCount > 0) transaction.totalItemsCount else 1
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Surface(
+                        shape = RoundedCornerShape(6.dp),
+                        color = Color(0xFFF1F5F9)
                     ) {
-                        Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(12.dp))
-                        Spacer(modifier = Modifier.width(3.dp))
-                        Text("Sinkronkan", fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                        Text(
+                            text = "$totalQty item • ${transaction.orderType.label}" + (if (transaction.tableNumber.isNotBlank()) " • Meja ${transaction.tableNumber}" else ""),
+                            fontSize = 10.sp,
+                            color = Color(0xFF475569),
+                            fontWeight = FontWeight.Medium,
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
+                        )
+                    }
+
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            imageVector = Icons.Default.Receipt,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(13.dp)
+                        )
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text(
+                            text = "Lihat Struk",
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.primary
+                        )
                     }
                 }
             }
@@ -1687,9 +1609,9 @@ fun OwnerWebReportCard(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(16.dp)
+                .padding(12.dp)
         ) {
-            // Header: Title & Cloud Status Badge
+            // Header: Title & Cloud Status Badge (Compact)
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -1699,35 +1621,36 @@ fun OwnerWebReportCard(
                     Surface(
                         shape = CircleShape,
                         color = Color(0xFF2563EB),
-                        modifier = Modifier.size(36.dp)
+                        modifier = Modifier.size(28.dp)
                     ) {
                         Box(contentAlignment = Alignment.Center) {
                             Icon(
                                 imageVector = Icons.Default.Language,
                                 contentDescription = null,
                                 tint = Color.White,
-                                modifier = Modifier.size(20.dp)
+                                modifier = Modifier.size(15.dp)
                             )
                         }
                     }
-                    Spacer(modifier = Modifier.width(10.dp))
+                    Spacer(modifier = Modifier.width(7.dp))
                     Column {
                         Text(
                             text = "Web Laporan Owner (Real-Time)",
-                            style = MaterialTheme.typography.titleMedium,
+                            fontSize = 13.sp,
                             fontWeight = FontWeight.Bold,
                             color = Color(0xFF0F172A)
                         )
                         Text(
                             text = "Pantau penjualan via browser HP / Laptop",
                             style = MaterialTheme.typography.bodySmall,
-                            color = Color(0xFF64748B)
+                            color = Color(0xFF64748B),
+                            fontSize = 10.sp
                         )
                     }
                 }
             }
 
-            Spacer(modifier = Modifier.height(12.dp))
+            Spacer(modifier = Modifier.height(8.dp))
 
             // Cloud Connection Banner
             Surface(
@@ -2053,58 +1976,58 @@ fun RoomDailyReportArchiveCard(
                     Surface(
                         shape = CircleShape,
                         color = Color(0xFF047857).copy(alpha = 0.12f),
-                        modifier = Modifier.size(40.dp)
+                        modifier = Modifier.size(28.dp)
                     ) {
                         Box(contentAlignment = Alignment.Center) {
                             Icon(
                                 imageVector = Icons.Default.Storage,
                                 contentDescription = null,
                                 tint = Color(0xFF047857),
-                                modifier = Modifier.size(22.dp)
+                                modifier = Modifier.size(15.dp)
                             )
                         }
                     }
-                    Spacer(modifier = Modifier.width(10.dp))
+                    Spacer(modifier = Modifier.width(7.dp))
                     Column {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Text(
                                 text = "Database Room: Arsip Laporan",
-                                fontSize = 15.sp,
+                                fontSize = 13.sp,
                                 fontWeight = FontWeight.Bold,
                                 color = MaterialTheme.colorScheme.onSurface
                             )
-                            Spacer(modifier = Modifier.width(6.dp))
+                            Spacer(modifier = Modifier.width(5.dp))
                             Surface(
                                 shape = RoundedCornerShape(4.dp),
                                 color = Color(0xFFECFDF5)
                             ) {
                                 Text(
                                     text = "SQLite",
-                                    fontSize = 10.sp,
+                                    fontSize = 8.5.sp,
                                     fontWeight = FontWeight.Bold,
                                     color = Color(0xFF047857),
-                                    modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp)
+                                    modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.5.dp)
                                 )
                             }
                         }
                         Text(
-                            text = "Tabel daily_reports • Tersimpan offline di HP & siap cetak/ekspor",
-                            fontSize = 11.sp,
+                            text = "Tabel daily_reports • Tersimpan offline di HP",
+                            fontSize = 10.sp,
                             color = Color(0xFF64748B)
                         )
                     }
                 }
 
                 Surface(
-                    shape = RoundedCornerShape(12.dp),
+                    shape = RoundedCornerShape(8.dp),
                     color = Color(0xFFF1F5F9)
                 ) {
                     Text(
                         text = "${reports.size} Arsip",
-                        fontSize = 11.sp,
+                        fontSize = 10.sp,
                         fontWeight = FontWeight.Bold,
                         color = Color(0xFF334155),
-                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.5.dp)
                     )
                 }
             }
@@ -2646,6 +2569,288 @@ fun DailyReportDetailDialog(
                         Spacer(modifier = Modifier.width(6.dp))
                         Text("Cetak Thermal", fontSize = 12.sp, fontWeight = FontWeight.Bold)
                     }
+                }
+            }
+        }
+    }
+}
+
+/**
+ * Dialog Tambah Catatan Pengeluaran / Beban Toko
+ */
+@Composable
+fun AddExpenseDialog(
+    onDismiss: () -> Unit,
+    onSave: (title: String, amount: Double, category: String, notes: String) -> Unit
+) {
+    var title by remember { mutableStateOf("") }
+    var amountText by remember { mutableStateOf("") }
+    var selectedCategory by remember { mutableStateOf("Operasional") }
+    var notes by remember { mutableStateOf("") }
+    var errorMessage by remember { mutableStateOf("") }
+
+    val categories = listOf("Operasional", "Utilitas", "Bahan/Kemasan", "Gaji", "Sewa", "Lainnya")
+
+    androidx.compose.ui.window.Dialog(onDismissRequest = onDismiss) {
+        Surface(
+            shape = RoundedCornerShape(20.dp),
+            color = MaterialTheme.colorScheme.surface,
+            tonalElevation = 6.dp,
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp)
+        ) {
+            Column(
+                modifier = Modifier
+                    .padding(20.dp)
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(14.dp)
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Surface(
+                            shape = CircleShape,
+                            color = Color(0xFF4C0519),
+                            modifier = Modifier.size(36.dp)
+                        ) {
+                            Box(contentAlignment = Alignment.Center) {
+                                Icon(Icons.Default.Receipt, contentDescription = null, tint = Color(0xFFFB7185), modifier = Modifier.size(20.dp))
+                            }
+                        }
+                        Spacer(modifier = Modifier.width(10.dp))
+                        Text("Catat Pengeluaran", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                    }
+
+                    IconButton(onClick = onDismiss, modifier = Modifier.size(28.dp)) {
+                        Icon(Icons.Default.Close, contentDescription = "Tutup")
+                    }
+                }
+
+                if (errorMessage.isNotBlank()) {
+                    Surface(
+                        color = Color(0xFFFEE2E2),
+                        shape = RoundedCornerShape(8.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text(errorMessage, color = Color(0xFFDC2626), fontSize = 12.sp, modifier = Modifier.padding(10.dp))
+                    }
+                }
+
+                OutlinedTextField(
+                    value = title,
+                    onValueChange = { title = it },
+                    label = { Text("Nama Pengeluaran") },
+                    placeholder = { Text("Contoh: Listrik, Plastik Kemasan, Es Batu") },
+                    modifier = Modifier.fillMaxWidth().testTag("input_expense_title"),
+                    singleLine = true,
+                    shape = RoundedCornerShape(10.dp)
+                )
+
+                OutlinedTextField(
+                    value = amountText,
+                    onValueChange = { input ->
+                        if (input.all { it.isDigit() }) amountText = input
+                    },
+                    label = { Text("Nominal Biaya (Rp)") },
+                    placeholder = { Text("Contoh: 50000") },
+                    keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
+                        keyboardType = androidx.compose.ui.text.input.KeyboardType.Number
+                    ),
+                    modifier = Modifier.fillMaxWidth().testTag("input_expense_amount"),
+                    singleLine = true,
+                    shape = RoundedCornerShape(10.dp)
+                )
+
+                Column {
+                    Text("Kategori Pengeluaran", fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = Color(0xFF64748B))
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        categories.forEach { cat ->
+                            val isSelected = selectedCategory == cat
+                            FilterChip(
+                                selected = isSelected,
+                                onClick = { selectedCategory = cat },
+                                label = { Text(cat, fontSize = 11.sp) },
+                                colors = FilterChipDefaults.filterChipColors(
+                                    selectedContainerColor = Color(0xFFE11D48),
+                                    selectedLabelColor = Color.White
+                                )
+                            )
+                        }
+                    }
+                }
+
+                OutlinedTextField(
+                    value = notes,
+                    onValueChange = { notes = it },
+                    label = { Text("Catatan / Keterangan (Opsional)") },
+                    modifier = Modifier.fillMaxWidth(),
+                    maxLines = 2,
+                    shape = RoundedCornerShape(10.dp)
+                )
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    OutlinedButton(
+                        onClick = onDismiss,
+                        modifier = Modifier.weight(1f).height(44.dp),
+                        shape = RoundedCornerShape(10.dp)
+                    ) {
+                        Text("Batal")
+                    }
+
+                    Button(
+                        onClick = {
+                            val parsedAmount = amountText.toDoubleOrNull()
+                            if (title.isBlank()) {
+                                errorMessage = "Nama pengeluaran tidak boleh kosong"
+                            } else if (parsedAmount == null || parsedAmount <= 0.0) {
+                                errorMessage = "Masukkan nominal pengeluaran yang valid"
+                            } else {
+                                onSave(title, parsedAmount, selectedCategory, notes)
+                            }
+                        },
+                        modifier = Modifier.weight(1.2f).height(44.dp).testTag("btn_save_expense"),
+                        shape = RoundedCornerShape(10.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFE11D48))
+                    ) {
+                        Text("Simpan", fontWeight = FontWeight.Bold)
+                    }
+                }
+            }
+        }
+    }
+}
+
+/**
+ * Dialog Menampilkan Daftar Rincian Pengeluaran
+ */
+@Composable
+fun ExpensesListDialog(
+    expenses: List<com.example.data.model.Expense>,
+    totalExpenses: Double,
+    onDelete: (com.example.data.model.Expense) -> Unit,
+    onDismiss: () -> Unit
+) {
+    val dateFormat = remember { java.text.SimpleDateFormat("dd/MM/yyyy HH:mm", java.util.Locale.getDefault()) }
+
+    androidx.compose.ui.window.Dialog(onDismissRequest = onDismiss) {
+        Surface(
+            shape = RoundedCornerShape(20.dp),
+            color = MaterialTheme.colorScheme.surface,
+            tonalElevation = 6.dp,
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp)
+        ) {
+            Column(
+                modifier = Modifier.padding(20.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column {
+                        Text("Rincian Pengeluaran Toko", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                        Text(
+                            text = "Total Beban: ${BluetoothPrinterManager.formatRupiah(totalExpenses)} (${expenses.size} item)",
+                            fontSize = 12.sp,
+                            color = Color(0xFFE11D48),
+                            fontWeight = FontWeight.SemiBold
+                        )
+                    }
+
+                    IconButton(onClick = onDismiss, modifier = Modifier.size(28.dp)) {
+                        Icon(Icons.Default.Close, contentDescription = "Tutup")
+                    }
+                }
+
+                if (expenses.isEmpty()) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(24.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text("Belum ada catatan pengeluaran pada periode ini", color = Color(0xFF94A3B8), fontSize = 12.sp)
+                    }
+                } else {
+                    LazyColumn(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(max = 350.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        items(expenses, key = { it.id }) { exp ->
+                            Surface(
+                                shape = RoundedCornerShape(10.dp),
+                                color = Color(0xFFFFF1F2),
+                                border = BorderStroke(1.dp, Color(0xFFFECDD3)),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(12.dp),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(exp.title, fontWeight = FontWeight.Bold, fontSize = 13.sp, color = Color(0xFF9F1239))
+                                        Row(
+                                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Surface(
+                                                shape = RoundedCornerShape(4.dp),
+                                                color = Color(0xFFFECDD3)
+                                            ) {
+                                                Text(exp.category, fontSize = 10.sp, color = Color(0xFF881337), modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp), fontWeight = FontWeight.SemiBold)
+                                            }
+                                            Text(dateFormat.format(java.util.Date(exp.timestamp)), fontSize = 10.5.sp, color = Color(0xFF64748B))
+                                        }
+                                        if (exp.notes.isNotBlank()) {
+                                            Text(exp.notes, fontSize = 11.sp, color = Color(0xFF475569))
+                                        }
+                                    }
+
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Text(
+                                            text = BluetoothPrinterManager.formatRupiah(exp.amount),
+                                            fontWeight = FontWeight.Black,
+                                            fontSize = 13.5.sp,
+                                            color = Color(0xFFBE123C)
+                                        )
+                                        IconButton(onClick = { onDelete(exp) }, modifier = Modifier.size(32.dp)) {
+                                            Icon(Icons.Default.Delete, contentDescription = "Hapus", tint = Color(0xFFE11D48), modifier = Modifier.size(16.dp))
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                Button(
+                    onClick = onDismiss,
+                    modifier = Modifier.fillMaxWidth().height(42.dp),
+                    shape = RoundedCornerShape(10.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0F172A))
+                ) {
+                    Text("Tutup", fontWeight = FontWeight.Bold)
                 }
             }
         }
