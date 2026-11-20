@@ -133,6 +133,11 @@ jobs:
             if [ -e "$target_path" ]; then
               parent_tag="$(basename "$(dirname "$apk_file")")"
               target_path="build-apks/${parent_tag}-${base_name}"
+              counter=2
+              while [ -e "$target_path" ]; do
+                target_path="build-apks/${parent_tag}-${counter}-${base_name}"
+                counter=$((counter + 1))
+              done
             fi
             cp -v "$apk_file" "$target_path"
           done < <(find app/build/outputs/apk -type f -name "*.apk" -print0)
