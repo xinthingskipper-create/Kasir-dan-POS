@@ -24,13 +24,93 @@ jobs:
           java-version: '21'
 
       - name: Setup Android SDK Environment & Licenses
-        uses: android-actions/setup-android@v4
-        with:
-          accept-android-sdk-licenses: true
-          packages: |
-            platform-tools
-            platforms;android-36.1
-            build-tools;36.0.0
+        run: |
+          echo "Menyiapkan environment Android SDK..."
+          ANDROID_HOME="${ANDROID_HOME:-/usr/local/lib/android/sdk}"
+
+          if [ ! -d "$ANDROID_HOME" ]; then
+            ANDROID_HOME="$HOME/android-sdk"
+            mkdir -p "$ANDROID_HOME"
+          fi
+
+          # Pastikan runner memiliki izin tulis penuh ke direktori SDK
+          if [ ! -w "$ANDROID_HOME" ] && command -v sudo >/dev/null 2>&1; then
+            sudo chown -R "$(id -u):$(id -g)" "$ANDROID_HOME" || true
+          fi
+
+          if [ ! -w "$ANDROID_HOME" ]; then
+            echo "::warning::$ANDROID_HOME tidak dapat ditulis; menyiapkan SDK di $HOME/android-sdk"
+            FALLBACK_SDK="$HOME/android-sdk"
+            mkdir -p "$FALLBACK_SDK"
+            if [ -d "$ANDROID_HOME/cmdline-tools" ] && [ ! -d "$FALLBACK_SDK/cmdline-tools" ]; then
+              cp -r "$ANDROID_HOME/cmdline-tools" "$FALLBACK_SDK/cmdline-tools" || true
+            fi
+            ANDROID_HOME="$FALLBACK_SDK"
+          fi
+
+          ANDROID_SDK_ROOT="$ANDROID_HOME"
+          export ANDROID_HOME ANDROID_SDK_ROOT
+          echo "ANDROID_HOME=$ANDROID_HOME" >> "$GITHUB_ENV"
+          echo "ANDROID_SDK_ROOT=$ANDROID_SDK_ROOT" >> "$GITHUB_ENV"
+
+          # Cari sdkmanager dari cmdline-tools (hindari tools/bin/sdkmanager lama yang tidak kompatibel JDK 21)
+          SDKMANAGER=""
+          if [ -x "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" ]; then
+            SDKMANAGER="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          elif [ -d "$ANDROID_HOME/cmdline-tools" ]; then
+            SDKMANAGER="$(find "$ANDROID_HOME/cmdline-tools" -maxdepth 3 -type f -name sdkmanager 2>/dev/null | head -n 1 || true)"
+          fi
+
+          if [ -z "$SDKMANAGER" ]; then
+            echo "::error::sdkmanager tidak ditemukan di $ANDROID_HOME/cmdline-tools"
+            ls -la "$ANDROID_HOME" || true
+            exit 1
+          fi
+          chmod +x "$SDKMANAGER"
+
+          echo "Menggunakan sdkmanager: $SDKMANAGER (versi: $("$SDKMANAGER" --version --sdk_root="$ANDROID_HOME" || echo unknown))"
+
+          # Setujui semua lisensi SDK secara non-interaktif (hindari kegagalan pipefail akibat SIGPIPE dari yes)
+          mkdir -p "$ANDROID_HOME/licenses"
+          LIC_STATUS=0
+          set +o pipefail
+          yes | "$SDKMANAGER" --sdk_root="$ANDROID_HOME" --licenses >/dev/null || LIC_STATUS=$?
+          set -o pipefail
+          if [ "$LIC_STATUS" -ne 0 ]; then
+            echo "::error::Gagal memproses lisensi Android SDK (exit code $LIC_STATUS)"
+            exit "$LIC_STATUS"
+          fi
+
+          # Perbarui cmdline-tools;latest agar metadata paket Android 36.1 dikenali
+          set +o pipefail
+          yes | "$SDKMANAGER" --sdk_root="$ANDROID_HOME" --install "cmdline-tools;latest" >/dev/null || true
+          set -o pipefail
+          if [ -x "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" ]; then
+            SDKMANAGER="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+            chmod +x "$SDKMANAGER"
+          fi
+
+          # Pasang platform-tools, build-tools;36.0.0, dan platforms;android-36.1
+          INSTALL_STATUS=0
+          set +o pipefail
+          yes | "$SDKMANAGER" --sdk_root="$ANDROID_HOME" --install "platform-tools" "build-tools;36.0.0" "platforms;android-36.1" || INSTALL_STATUS=$?
+          set -o pipefail
+          if [ "$INSTALL_STATUS" -ne 0 ]; then
+            echo "::warning::Instalasi langsung platforms;android-36.1 gagal, mencoba channel/paket cadangan..."
+            set +o pipefail
+            yes | "$SDKMANAGER" --sdk_root="$ANDROID_HOME" --install "platform-tools" "build-tools;36.0.0" "platforms;android-36" || true
+            "$SDKMANAGER" --sdk_root="$ANDROID_HOME" --list --channel=0 | grep -E "platforms;android-36|build-tools;36" || true
+            set -o pipefail
+          fi
+
+          # Setujui ulang lisensi untuk komponen yang baru diunduh
+          set +o pipefail
+          yes | "$SDKMANAGER" --sdk_root="$ANDROID_HOME" --licenses >/dev/null || true
+          set -o pipefail
+
+          echo "$ANDROID_HOME/platform-tools" >> "$GITHUB_PATH"
+          echo "$(dirname "$SDKMANAGER")" >> "$GITHUB_PATH"
+          echo "Android SDK siap di $ANDROID_HOME"
 
       - name: Set up Gradle 9.3.1
         uses: gradle/actions/setup-gradle@v4
