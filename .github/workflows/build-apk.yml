@@ -33,17 +33,20 @@ jobs:
             mkdir -p "$ANDROID_HOME"
           fi
 
-          # Pastikan runner memiliki izin tulis penuh ke direktori SDK
-          if [ ! -w "$ANDROID_HOME" ] && command -v sudo >/dev/null 2>&1; then
-            sudo chown -R "$(id -u):$(id -g)" "$ANDROID_HOME" || true
+          # Pastikan seluruh direktori dan subdirektori SDK dapat ditulis oleh user runner
+          mkdir -p "$HOME/.android"
+          touch "$HOME/.android/repositories.cfg"
+          if command -v sudo >/dev/null 2>&1; then
+            sudo chown -R "$(id -u):$(id -g)" "$ANDROID_HOME" 2>/dev/null || true
           fi
 
-          if [ ! -w "$ANDROID_HOME" ]; then
-            echo "::warning::$ANDROID_HOME tidak dapat ditulis; menyiapkan SDK di $HOME/android-sdk"
+          mkdir -p "$ANDROID_HOME/licenses" "$ANDROID_HOME/cmdline-tools" 2>/dev/null || true
+          if [ ! -w "$ANDROID_HOME" ] || [ ! -w "$ANDROID_HOME/licenses" ]; then
+            echo "::warning::$ANDROID_HOME atau subdirektorinya tidak dapat ditulis; beralih ke $HOME/android-sdk"
             FALLBACK_SDK="$HOME/android-sdk"
-            mkdir -p "$FALLBACK_SDK"
-            if [ -d "$ANDROID_HOME/cmdline-tools" ] && [ ! -d "$FALLBACK_SDK/cmdline-tools" ]; then
-              cp -r "$ANDROID_HOME/cmdline-tools" "$FALLBACK_SDK/cmdline-tools" || true
+            mkdir -p "$FALLBACK_SDK/licenses" "$FALLBACK_SDK/cmdline-tools"
+            if [ -d "$ANDROID_HOME/cmdline-tools" ] && [ -z "$(ls -A "$FALLBACK_SDK/cmdline-tools" 2>/dev/null)" ]; then
+              cp -r "$ANDROID_HOME/cmdline-tools/." "$FALLBACK_SDK/cmdline-tools/" 2>/dev/null || true
             fi
             ANDROID_HOME="$FALLBACK_SDK"
           fi
@@ -53,28 +56,39 @@ jobs:
           echo "ANDROID_HOME=$ANDROID_HOME" >> "$GITHUB_ENV"
           echo "ANDROID_SDK_ROOT=$ANDROID_SDK_ROOT" >> "$GITHUB_ENV"
 
-          # Cari sdkmanager dari cmdline-tools (hindari tools/bin/sdkmanager lama yang tidak kompatibel JDK 21)
-          SDKMANAGER=""
-          if [ -x "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" ]; then
-            SDKMANAGER="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
-          elif [ -d "$ANDROID_HOME/cmdline-tools" ]; then
-            SDKMANAGER="$(find "$ANDROID_HOME/cmdline-tools" -maxdepth 3 -type f -name sdkmanager 2>/dev/null | head -n 1 || true)"
+          find_sdkmanager() {
+            if [ -x "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" ]; then
+              echo "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+            elif [ -d "$ANDROID_HOME/cmdline-tools" ]; then
+              find "$ANDROID_HOME/cmdline-tools" -maxdepth 3 -type f -name sdkmanager 2>/dev/null | head -n 1 || true
+            fi
+          }
+
+          SDKMANAGER="$(find_sdkmanager)"
+          if [ -n "$SDKMANAGER" ]; then
+            chmod +x "$SDKMANAGER" || true
           fi
 
-          if [ -z "$SDKMANAGER" ]; then
-            echo "::error::sdkmanager tidak ditemukan di $ANDROID_HOME/cmdline-tools"
-            ls -la "$ANDROID_HOME" || true
-            exit 1
+          # Jika sdkmanager tidak ada atau gagal dijalankan dengan JDK 21, unduh cmdline-tools terbaru dari Google
+          if [ -z "$SDKMANAGER" ] || ! "$SDKMANAGER" --version --sdk_root="$ANDROID_HOME" >/dev/null 2>&1; then
+            echo "Mengunduh Android commandlinetools terbaru..."
+            TMP_DIR="$(mktemp -d)"
+            curl -fsSL "https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip" -o "$TMP_DIR/cmdline-tools.zip"
+            unzip -q "$TMP_DIR/cmdline-tools.zip" -d "$TMP_DIR/extracted"
+            rm -rf "$ANDROID_HOME/cmdline-tools/latest"
+            mkdir -p "$ANDROID_HOME/cmdline-tools/latest"
+            cp -r "$TMP_DIR/extracted/cmdline-tools/." "$ANDROID_HOME/cmdline-tools/latest/"
+            rm -rf "$TMP_DIR"
+            SDKMANAGER="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+            chmod +x "$SDKMANAGER"
           fi
-          chmod +x "$SDKMANAGER"
 
           echo "Menggunakan sdkmanager: $SDKMANAGER (versi: $("$SDKMANAGER" --version --sdk_root="$ANDROID_HOME" || echo unknown))"
 
-          # Setujui semua lisensi SDK secara non-interaktif (hindari kegagalan pipefail akibat SIGPIPE dari yes)
-          mkdir -p "$ANDROID_HOME/licenses"
+          # Setujui semua lisensi SDK secara non-interaktif
           LIC_STATUS=0
           set +o pipefail
-          yes | "$SDKMANAGER" --sdk_root="$ANDROID_HOME" --licenses >/dev/null || LIC_STATUS=$?
+          yes | "$SDKMANAGER" --sdk_root="$ANDROID_HOME" --licenses || LIC_STATUS=$?
           set -o pipefail
           if [ "$LIC_STATUS" -ne 0 ]; then
             echo "::error::Gagal memproses lisensi Android SDK (exit code $LIC_STATUS)"
@@ -83,7 +97,7 @@ jobs:
 
           # Perbarui cmdline-tools;latest agar metadata paket Android 36.1 dikenali
           set +o pipefail
-          yes | "$SDKMANAGER" --sdk_root="$ANDROID_HOME" --install "cmdline-tools;latest" >/dev/null || true
+          yes | "$SDKMANAGER" --sdk_root="$ANDROID_HOME" --install "cmdline-tools;latest" || true
           set -o pipefail
           if [ -x "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" ]; then
             SDKMANAGER="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
@@ -96,7 +110,7 @@ jobs:
           yes | "$SDKMANAGER" --sdk_root="$ANDROID_HOME" --install "platform-tools" "build-tools;36.0.0" "platforms;android-36.1" || INSTALL_STATUS=$?
           set -o pipefail
           if [ "$INSTALL_STATUS" -ne 0 ]; then
-            echo "::warning::Instalasi langsung platforms;android-36.1 gagal, mencoba channel/paket cadangan..."
+            echo "::warning::Instalasi langsung platforms;android-36.1 gagal (exit code $INSTALL_STATUS), mencoba paket cadangan..."
             set +o pipefail
             yes | "$SDKMANAGER" --sdk_root="$ANDROID_HOME" --install "platform-tools" "build-tools;36.0.0" "platforms;android-36" || true
             "$SDKMANAGER" --sdk_root="$ANDROID_HOME" --list --channel=0 | grep -E "platforms;android-36|build-tools;36" || true
@@ -105,7 +119,7 @@ jobs:
 
           # Setujui ulang lisensi untuk komponen yang baru diunduh
           set +o pipefail
-          yes | "$SDKMANAGER" --sdk_root="$ANDROID_HOME" --licenses >/dev/null || true
+          yes | "$SDKMANAGER" --sdk_root="$ANDROID_HOME" --licenses || true
           set -o pipefail
 
           echo "$ANDROID_HOME/platform-tools" >> "$GITHUB_PATH"
