@@ -56,6 +56,12 @@ interface ProductDao {
     @Query("UPDATE products SET stock = :newStock WHERE id = :productId")
     suspend fun updateStock(productId: Long, newStock: Int)
 
+    @Query("UPDATE products SET category = :newCategory, updatedAt = :updatedAt WHERE LOWER(category) = LOWER(:oldCategory)")
+    suspend fun renameCategory(oldCategory: String, newCategory: String, updatedAt: Long = System.currentTimeMillis())
+
+    @Query("UPDATE products SET unit = :newUnit, updatedAt = :updatedAt WHERE LOWER(category) = LOWER(:category)")
+    suspend fun updateUnitByCategory(category: String, newUnit: String, updatedAt: Long = System.currentTimeMillis())
+
     @Query("SELECT COUNT(*) FROM products")
     suspend fun getProductCount(): Int
 }

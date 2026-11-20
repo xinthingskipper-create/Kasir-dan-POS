@@ -125,6 +125,48 @@ fun ReceiptDialog(
 
                 Spacer(modifier = Modifier.height(12.dp))
 
+                // Highlight Kembalian setelah pembayaran berhasil
+                if (transaction.paymentMethod == com.example.data.model.PaymentMethod.TUNAI || transaction.changeAmount > 0.0) {
+                    Surface(
+                        shape = RoundedCornerShape(12.dp),
+                        color = Color(0xFF10B981).copy(alpha = 0.12f),
+                        border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF10B981).copy(alpha = 0.45f)),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(bottom = 12.dp)
+                            .testTag("receipt_change_banner")
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 14.dp, vertical = 10.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = "Kembalian Pembayaran",
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = Color(0xFF065F46)
+                                )
+                                Text(
+                                    text = "Bayar ${BluetoothPrinterManager.formatRupiah(transaction.amountPaid)} • Total ${BluetoothPrinterManager.formatRupiah(transaction.grandTotal)}",
+                                    fontSize = 11.sp,
+                                    color = Color(0xFF047857)
+                                )
+                            }
+                            Text(
+                                text = BluetoothPrinterManager.formatRupiah(transaction.changeAmount),
+                                fontSize = 18.sp,
+                                fontWeight = FontWeight.ExtraBold,
+                                color = Color(0xFF059669),
+                                modifier = Modifier.testTag("receipt_change_amount")
+                            )
+                        }
+                    }
+                }
+
                 // Thermal receipt paper styling card
                 Card(
                     modifier = Modifier

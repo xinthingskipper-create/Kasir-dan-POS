@@ -21,9 +21,12 @@ import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
+import androidx.compose.ui.test.performScrollToIndex
 import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.test.swipeLeft
@@ -2300,21 +2303,35 @@ class ExampleRobolectricTest {
 
         composeTestRule.onNodeWithTag("payment_header_total").assertTextEquals("Total : Rp 20.000")
         composeTestRule.onNodeWithTag("cash_amount_display").assertTextEquals("Rp 0")
+        composeTestRule.onNodeWithTag("payment_change_display").assertTextEquals("Kembalian : Rp 0")
         composeTestRule.onNodeWithTag("confirm_payment_button").assertIsNotEnabled()
 
-        // Input 2 -> 0 -> 000 => Rp 20.000
+        // Input 5 -> 0 -> 000 => Rp 50.000 => Kembalian : Rp 30.000
+        composeTestRule.onNodeWithTag("keypad_5").performClick()
+        composeTestRule.onNodeWithTag("keypad_0").performClick()
+        composeTestRule.onNodeWithTag("keypad_000").performClick()
+        composeTestRule.waitForIdle()
+        composeTestRule.onNodeWithTag("cash_amount_display").assertTextEquals("Rp 50.000")
+        composeTestRule.onNodeWithTag("payment_change_display").assertTextEquals("Kembalian : Rp 30.000")
+        composeTestRule.onNodeWithTag("confirm_payment_button").assertIsEnabled()
+
+        // Clear & input 2 -> 0 -> 000 => Rp 20.000 => Kembalian : Rp 0 (Uang Pas)
+        composeTestRule.onNodeWithTag("keypad_clear").performClick()
         composeTestRule.onNodeWithTag("keypad_2").performClick()
         composeTestRule.onNodeWithTag("keypad_0").performClick()
         composeTestRule.onNodeWithTag("keypad_000").performClick()
         composeTestRule.waitForIdle()
 
         composeTestRule.onNodeWithTag("cash_amount_display").assertTextEquals("Rp 20.000")
+        composeTestRule.onNodeWithTag("payment_change_display").assertTextEquals("Kembalian : Rp 0 (Uang Pas)")
         composeTestRule.onNodeWithTag("confirm_payment_button").assertIsEnabled()
 
-        // Backspace trims last zero -> Rp 2.000 -> confirm disabled
+        // Backspace trims last zero -> Rp 2.000 -> Kurang : Rp 18.000 -> confirm disabled
         composeTestRule.onNodeWithTag("keypad_backspace").performClick()
         composeTestRule.waitForIdle()
         composeTestRule.onNodeWithTag("cash_amount_display").assertTextEquals("Rp 2.000")
+        composeTestRule.onNodeWithTag("payment_change_display").assertTextEquals("Kembalian : Rp 0")
+        composeTestRule.onNodeWithTag("payment_shortage_display").assertTextEquals("Kurang : Rp 18.000")
         composeTestRule.onNodeWithTag("confirm_payment_button").assertIsNotEnabled()
 
         // Clear resets back to Rp 0
@@ -2326,6 +2343,7 @@ class ExampleRobolectricTest {
         composeTestRule.onNodeWithTag("keypad_uang_pas").performClick()
         composeTestRule.waitForIdle()
         composeTestRule.onNodeWithTag("cash_amount_display").assertTextEquals("Rp 20.000")
+        composeTestRule.onNodeWithTag("payment_change_display").assertTextEquals("Kembalian : Rp 0 (Uang Pas)")
         composeTestRule.onNodeWithTag("confirm_payment_button").assertIsEnabled().performClick()
         composeTestRule.waitForIdle()
 
@@ -2363,6 +2381,7 @@ class ExampleRobolectricTest {
         composeTestRule.onNodeWithTag("payment_method_QRIS").assertIsDisplayed()
         composeTestRule.onNodeWithTag("payment_detail_apply_button").performClick()
         composeTestRule.waitForIdle()
+        composeTestRule.onNodeWithTag("payment_change_display").assertTextEquals("Kembalian : Rp 0")
         composeTestRule.onNodeWithTag("confirm_payment_button").assertIsEnabled().performClick()
         composeTestRule.waitForIdle()
 
@@ -2542,6 +2561,239 @@ class ExampleRobolectricTest {
             assertTrue(txt.contains("function cleanExpNote(raw)"))
             assertTrue(txt.contains("const sumExp = periodExpenses.reduce"))
         }
+    }
+
+    @Test
+    @Config(sdk = [35], qualifiers = "w411dp-h915dp")
+    fun `verify Today transaction report formats TRX as Order and includes Indonesian day name`() {
+        val nov19Cal = java.util.Calendar.getInstance().apply {
+            set(2026, java.util.Calendar.NOVEMBER, 19, 14, 30, 0)
+            set(java.util.Calendar.MILLISECOND, 0)
+        }
+        val nov19Millis = nov19Cal.timeInMillis
+
+        assertEquals("Order-20261119-001", com.example.ui.screens.formatOrderLabel("TRX-20261119-001"))
+        assertEquals("Order-007", com.example.ui.screens.formatOrderLabel("#TRX-007"))
+        assertEquals("Order INV-10", com.example.ui.screens.formatOrderLabel("INV-10"))
+        assertEquals("Kamis", com.example.ui.screens.getKpDayName(nov19Millis))
+        assertEquals("Kamis, 19 Nov 2026", com.example.ui.screens.formatKpDateShort(nov19Millis))
+
+        val todayStart = com.example.ui.PosViewModel.getStartOfDay(0)
+        val todayTrxTime = todayStart + 10 * 3600_000L + 15 * 60_000L
+        val expectedTodayDay = com.example.ui.screens.getKpDayName(todayTrxTime)
+
+        val todayTrx = com.example.data.model.Transaction(
+            id = 501L,
+            invoiceNumber = "TRX-20261119-001",
+            cashierId = 1L,
+            cashierName = "Admin",
+            timestamp = todayTrxTime,
+            subtotal = 30000.0,
+            grandTotal = 30000.0,
+            amountPaid = 50000.0,
+            changeAmount = 20000.0,
+            profitAmount = 12000.0,
+            totalItemsCount = 2
+        )
+
+        composeTestRule.setContent {
+            LazyColumn(modifier = Modifier.fillMaxSize()) {
+                item {
+                    Box(modifier = Modifier.fillMaxWidth()) {
+                        com.example.ui.screens.TransactionRecordReportSection(
+                            allTransactions = listOf(todayTrx),
+                            storeProfile = com.example.data.model.StoreProfile(storeName = "Warung Maju"),
+                            onDeletePeriod = {},
+                            onOpenReceipt = {},
+                            onDeleteSingleTransaction = {},
+                            initialPeriod = com.example.ui.screens.TransactionRecordPeriod.DAILY,
+                            menuOptionTitle = com.example.ui.screens.TransactionReportMenuOption.TODAY.title
+                        )
+                    }
+                }
+            }
+        }
+
+        composeTestRule.waitForIdle()
+        composeTestRule.onNodeWithTag("row_record_nota_TRX-20261119-001").performScrollTo().assertIsDisplayed()
+        composeTestRule.onNodeWithText("Order-20261119-001").assertIsDisplayed()
+        composeTestRule.onAllNodesWithText("#TRX-20261119-001", substring = true).fetchSemanticsNodes().let { nodes ->
+            assertTrue("Did not expect #TRX-20261119-001 in Today report UI", nodes.isEmpty())
+        }
+        composeTestRule.onAllNodesWithText(expectedTodayDay, substring = true).fetchSemanticsNodes().let { nodes ->
+            assertTrue("Expected Indonesian day name '$expectedTodayDay' in Today report UI", nodes.isNotEmpty())
+        }
+    }
+
+    @Test
+    @Config(sdk = [35], qualifiers = "w411dp-h915dp")
+    fun `verify operational settings for categories, food and drink porsi or pcs units, and table count`() {
+        val app = ApplicationProvider.getApplicationContext<Application>()
+        val vm = com.example.ui.PosViewModel(app)
+        vm.resetOperationalSettingsToDefaults()
+
+        assertEquals(listOf("Makanan", "Minuman", "Snack"), vm.configuredCategories.value)
+        assertEquals("porsi", vm.foodDefaultUnit.value)
+        assertEquals("pcs", vm.drinkDefaultUnit.value)
+        assertEquals(5, vm.tableCount.value)
+        assertEquals("porsi", vm.defaultUnitForCategory("Makanan"))
+        assertEquals("pcs", vm.defaultUnitForCategory("Minuman"))
+
+        assertTrue(vm.addCategory("Dessert"))
+        assertTrue(vm.configuredCategories.value.contains("Dessert"))
+        assertTrue(vm.renameCategory("Dessert", "Pencuci Mulut"))
+        assertTrue(vm.configuredCategories.value.contains("Pencuci Mulut"))
+        assertTrue(vm.removeCategory("Pencuci Mulut"))
+        assertTrue(!vm.configuredCategories.value.contains("Pencuci Mulut"))
+
+        vm.setFoodDefaultUnit("pcs")
+        vm.setDrinkDefaultUnit("porsi")
+        assertEquals("pcs", vm.defaultUnitForCategory("Makanan"))
+        assertEquals("porsi", vm.defaultUnitForCategory("Minuman"))
+
+        vm.setTableCount(14)
+        assertEquals(14, vm.tableCount.value)
+
+        // Verify persistence across new ViewModel instance
+        val vmReloaded = com.example.ui.PosViewModel(app)
+        assertEquals("pcs", vmReloaded.foodDefaultUnit.value)
+        assertEquals("porsi", vmReloaded.drinkDefaultUnit.value)
+        assertEquals(14, vmReloaded.tableCount.value)
+
+        // UI verification on StoreOperationalSettingsCardContent
+        var uiFoodUnit by mutableStateOf("porsi")
+        var uiDrinkUnit by mutableStateOf("pcs")
+        var uiTableCount by mutableStateOf(5)
+        var uiCategories by mutableStateOf(listOf("Makanan", "Minuman", "Snack"))
+
+        composeTestRule.setContent {
+            LazyColumn(modifier = Modifier.fillMaxSize()) {
+                item {
+                    com.example.ui.screens.StoreOperationalSettingsCardContent(
+                        categories = uiCategories,
+                        units = listOf("porsi", "pcs", "cup", "botol"),
+                        foodDefaultUnit = uiFoodUnit,
+                        drinkDefaultUnit = uiDrinkUnit,
+                        tableCount = uiTableCount,
+                        onAddCategory = { uiCategories = uiCategories + it },
+                        onRenameCategory = { _, _ -> },
+                        onRemoveCategory = { cat -> uiCategories = uiCategories - cat },
+                        onSelectFoodUnit = { uiFoodUnit = it },
+                        onApplyFoodUnitToProducts = {},
+                        onSelectDrinkUnit = { uiDrinkUnit = it },
+                        onApplyDrinkUnitToProducts = {},
+                        onAddUnit = {},
+                        onRemoveUnit = {},
+                        onTableCountChange = { uiTableCount = it },
+                        onResetDefaults = {
+                            uiCategories = listOf("Makanan", "Minuman", "Snack")
+                            uiFoodUnit = "porsi"
+                            uiDrinkUnit = "pcs"
+                            uiTableCount = 5
+                        }
+                    )
+                }
+            }
+        }
+
+        composeTestRule.waitForIdle()
+        composeTestRule.onNodeWithTag("input_new_category").performScrollTo().performTextInput("Kopi")
+        composeTestRule.onNodeWithTag("btn_add_category").performScrollTo().performClick()
+        composeTestRule.waitForIdle()
+        assertTrue(uiCategories.contains("Kopi"))
+
+        composeTestRule.onNodeWithTag("chip_food_unit_pcs").performScrollTo().performClick()
+        composeTestRule.onNodeWithTag("chip_drink_unit_porsi").performScrollTo().performClick()
+        composeTestRule.onNodeWithTag("chip_table_preset_15").performScrollTo().performClick()
+        composeTestRule.waitForIdle()
+        assertEquals("pcs", uiFoodUnit)
+        assertEquals("porsi", uiDrinkUnit)
+        assertEquals(15, uiTableCount)
+
+        composeTestRule.onNodeWithTag("btn_increase_table_count").performScrollTo().performClick()
+        composeTestRule.waitForIdle()
+        assertEquals(16, uiTableCount)
+
+        vm.resetOperationalSettingsToDefaults()
+    }
+
+    @Test
+    @Config(sdk = [35], qualifiers = "w411dp-h915dp")
+    fun `verify PaymentDialog displays configured tableCount chips and selects Meja 12`() {
+        var confirmedTable = ""
+        composeTestRule.setContent {
+            com.example.ui.screens.PaymentDialog(
+                grandTotal = 25000.0,
+                initialOrderType = com.example.data.model.OrderType.DINE_IN,
+                initialTableNumber = "",
+                tableCount = 12,
+                onDismiss = {},
+                onConfirmPayment = { _, _, _, _, tableNumber, _ ->
+                    confirmedTable = tableNumber
+                }
+            )
+        }
+
+        composeTestRule.waitForIdle()
+        composeTestRule.onNodeWithTag("payment_options_dropdown").performClick()
+        composeTestRule.waitForIdle()
+        composeTestRule.onNodeWithTag("dialog_table_chips_row").performScrollTo().performScrollToIndex(11)
+        composeTestRule.waitForIdle()
+        composeTestRule.onNodeWithTag("dialog_table_chip_12").performClick()
+        composeTestRule.waitForIdle()
+        composeTestRule.onNodeWithTag("payment_detail_apply_button").performClick()
+        composeTestRule.waitForIdle()
+        composeTestRule.onNodeWithTag("keypad_uang_pas").performClick()
+        composeTestRule.waitForIdle()
+        composeTestRule.onNodeWithTag("confirm_payment_button").performClick()
+        composeTestRule.waitForIdle()
+        assertEquals("Meja 12", confirmedTable)
+    }
+
+    @Test
+    @Config(sdk = [35], qualifiers = "w411dp-h915dp")
+    fun `verify ProductFormDialog uses dropdowns for kategori and satuan`() {
+        var savedName = ""
+        var savedCategory = ""
+        var savedUnit = ""
+
+        composeTestRule.setContent {
+            com.example.ui.screens.ProductFormDialog(
+                title = "Tambah Barang Baru",
+                initialProduct = null,
+                availableCategories = listOf("Makanan", "Minuman", "Snack"),
+                availableUnits = listOf("porsi", "pcs", "cup"),
+                defaultUnitForCategory = { cat ->
+                    if (cat.equals("Minuman", ignoreCase = true)) "pcs" else "porsi"
+                },
+                onDismiss = {},
+                onSave = { name, cat, _, _, _, _, _, unit ->
+                    savedName = name
+                    savedCategory = cat
+                    savedUnit = unit
+                }
+            )
+        }
+
+        composeTestRule.waitForIdle()
+        composeTestRule.onNodeWithTag("product_name_input").performTextInput("Es Teh Manis")
+        composeTestRule.onNodeWithTag("product_category_input").performClick()
+        composeTestRule.waitForIdle()
+        composeTestRule.onNodeWithTag("dropdown_category_option_Minuman").performClick()
+        composeTestRule.waitForIdle()
+
+        // Default unit auto-switches to pcs when Minuman is picked, then user can change via Satuan dropdown
+        composeTestRule.onNodeWithTag("product_unit_input").performClick()
+        composeTestRule.waitForIdle()
+        composeTestRule.onNodeWithTag("dropdown_unit_option_cup").performClick()
+        composeTestRule.waitForIdle()
+
+        composeTestRule.onNodeWithTag("save_product_button").performScrollTo().performClick()
+        composeTestRule.waitForIdle()
+
+        assertEquals("Es Teh Manis", savedName)
+        assertEquals("Minuman", savedCategory)
+        assertEquals("cup", savedUnit)
     }
 }
 

@@ -1262,7 +1262,7 @@ Anda dapat mendeploy file `owner.html` dan `index.html` agar memiliki domain web
         titleEl.innerHTML = '<span>🧾</span><span>Catatan Transaksi per Nota (' + escHtml(periodLabel) + ')</span>';
       }
       if (dateBadge) {
-        dateBadge.textContent = activeDateFilter || 'Semua Tanggal';
+        dateBadge.textContent = activeDateFilter ? formatKpDateShort(activeDateFilter) : 'Semua Tanggal';
       }
 
       const expList = Array.isArray(filteredExps)
@@ -1282,14 +1282,15 @@ Anda dapat mendeploy file `owner.html` dan `index.html` agar memiliki domain web
         if (dailyNotaPayFilter !== 'ALL' && normalizePm(t.paymentMethod) !== dailyNotaPayFilter) return false;
         if (dailyNotaSearchKeyword) {
           const inv = String(t.invoiceNumber || t.id || '').toLowerCase();
+          const ordLbl = formatOrderLabel(t.invoiceNumber || t.id || '').toLowerCase();
           const cust = String(t.customerName || '').toLowerCase();
           const cash = String(t.cashierName || '').toLowerCase();
           const sum = String(t.itemsSummary || '').toLowerCase();
           const nested = normalizeKpItems(t.items)
             .map(it => (it.productName || it.name || '') + ' ' + (it.notes || '')).join(' ').toLowerCase();
-          if (!inv.includes(dailyNotaSearchKeyword) && !cust.includes(dailyNotaSearchKeyword) &&
-              !cash.includes(dailyNotaSearchKeyword) && !sum.includes(dailyNotaSearchKeyword) &&
-              !nested.includes(dailyNotaSearchKeyword)) {
+          if (!inv.includes(dailyNotaSearchKeyword) && !ordLbl.includes(dailyNotaSearchKeyword) &&
+              !cust.includes(dailyNotaSearchKeyword) && !cash.includes(dailyNotaSearchKeyword) &&
+              !sum.includes(dailyNotaSearchKeyword) && !nested.includes(dailyNotaSearchKeyword)) {
             return false;
           }
         }
@@ -1329,13 +1330,14 @@ Anda dapat mendeploy file `owner.html` dan `index.html` agar memiliki domain web
               const dObj = getKpDateObj(e);
               const hm = String(dObj.getHours()).padStart(2, '0') + ':' + String(dObj.getMinutes()).padStart(2, '0');
               const dOnly = extractDateStr(e) || getLocalDateStr(dObj);
+              const expDateLbl = formatKpDateShort(dOnly) || dOnly;
               const noteTxt = cleanExpNote(e.notes);
               return "<div class='px-4 py-2.5 flex items-center justify-between gap-3 hover:bg-slate-900/60'>" +
                 "<div class='min-w-0 flex-1'>" +
                   "<div class='flex items-center gap-2 flex-wrap'>" +
                     "<span class='text-xs font-bold text-white'>" + escHtml(e.title || 'Pengeluaran') + "</span>" +
                     "<span class='px-2 py-0.5 rounded-full bg-rose-500/15 text-rose-300 border border-rose-500/30 text-[10px] font-bold'>" + escHtml(e.category || 'Operasional') + "</span>" +
-                    "<span class='text-[10px] font-mono text-slate-400'>🕒 " + hm + " • " + escHtml(dOnly) + "</span>" +
+                    "<span class='text-[10px] font-mono text-slate-400'>🕒 " + escHtml(expDateLbl) + " • " + hm + "</span>" +
                   "</div>" +
                   "<div class='text-[11px] text-slate-400 mt-0.5 truncate'>👤 " + escHtml(e.cashierName || 'Admin') + (noteTxt ? (' • ' + escHtml(noteTxt)) : '') + "</div>" +
                 "</div>" +
@@ -1361,6 +1363,8 @@ Anda dapat mendeploy file `owner.html` dan `index.html` agar memiliki domain web
         const dObj = getKpDateObj(t);
         const hhmm = String(dObj.getHours()).padStart(2, '0') + ':' + String(dObj.getMinutes()).padStart(2, '0');
         const dOnly = extractDateStr(t) || getLocalDateStr(dObj);
+        const dayDateLbl = formatKpDateShort(dOnly) || ((getKpDayName(dObj) ? getKpDayName(dObj) + ', ' : '') + dOnly);
+        const orderLabel = formatOrderLabel(inv);
         const pm = normalizePm(t.paymentMethod);
         const rev = Number(t.totalAmount || t.grandTotal) || 0;
         const prof = Number(t.profitAmount != null ? t.profitAmount : t.profit) || 0;
@@ -1396,8 +1400,8 @@ Anda dapat mendeploy file `owner.html` dan `index.html` agar memiliki domain web
         return "<div class='p-4 hover:bg-slate-800/35 transition flex flex-col md:flex-row md:items-center justify-between gap-3'>" +
           "<div class='min-w-0 flex-1'>" +
             "<div class='flex items-center gap-2 flex-wrap'>" +
-              "<span class='font-mono font-extrabold text-sm text-orange-400'>#" + escHtml(inv) + "</span>" +
-              "<span class='text-[11px] font-mono text-slate-400 bg-slate-950 border border-slate-800 px-2 py-0.5 rounded-md'>🕒 " + hhmm + " • " + escHtml(dOnly) + "</span>" +
+              "<span class='font-mono font-extrabold text-sm text-orange-400'>" + escHtml(orderLabel) + "</span>" +
+              "<span class='text-[11px] font-mono text-slate-300 bg-slate-950 border border-slate-800 px-2 py-0.5 rounded-md'>🕒 " + escHtml(dayDateLbl) + " • " + hhmm + "</span>" +
               "<span class='text-[10px] font-bold px-2 py-0.5 rounded-md border " + pmClass + "'>" + pmIcon + " " + escHtml(pm) + "</span>" +
               "<span class='text-[11px] text-slate-300'>👤 " + escHtml(cashier) + "</span>" +
               "<span class='text-[11px] text-slate-400'>• " + escHtml(cust) + " (" + escHtml(orderTypeLbl) + escHtml(tableLbl) + ")</span>" +
@@ -1413,7 +1417,7 @@ Anda dapat mendeploy file `owner.html` dan `index.html` agar memiliki domain web
             "</div>" +
             "<div class='flex items-center gap-1.5'>" +
               "<button type='button' onclick=\"openKpSingleNotaAlert('" + safeInv + "')\" class='px-2.5 py-1.5 text-[11px] font-bold rounded-lg bg-sky-500/15 hover:bg-sky-500/25 text-sky-300 border border-sky-500/30 transition cursor-pointer whitespace-nowrap'>🧾 Detail Nota</button>" +
-              "<button type='button' onclick=\"deleteKpSingleNota('" + safeInv + "')\" title='Hapus Nota #" + escHtml(inv) + "' class='px-2.5 py-1.5 text-[11px] font-bold rounded-lg bg-rose-500/10 hover:bg-rose-500/25 text-rose-400 border border-rose-500/30 transition cursor-pointer'>🗑️</button>" +
+              "<button type='button' onclick=\"deleteKpSingleNota('" + safeInv + "')\" title='Hapus " + escHtml(orderLabel) + "' class='px-2.5 py-1.5 text-[11px] font-bold rounded-lg bg-rose-500/10 hover:bg-rose-500/25 text-rose-400 border border-rose-500/30 transition cursor-pointer'>🗑️</button>" +
             "</div>" +
           "</div>" +
         "</div>";
@@ -1435,12 +1439,13 @@ Anda dapat mendeploy file `owner.html` dan `index.html` agar memiliki domain web
       const lines = list.slice(0, 30).map(t => {
         const d = getKpDateObj(t);
         const hm = String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0');
+        const dayStr = getKpDayName(d);
         const itemsArr = normalizeKpItems(t.items);
         const itemsText = t.itemsSummary || (itemsArr.length ? itemsArr.map(it => (it.productName || it.name || 'Item') + ' x' + (it.quantity || it.qty || 1)).join(', ') : '-');
-        return '- #' + (t.invoiceNumber || t.id) + ' (' + hm + ' • ' + normalizePm(t.paymentMethod) + '): ' + formatRupiah(t.totalAmount || t.grandTotal) + ' | Laba ' + formatRupiah(t.profitAmount != null ? t.profitAmount : t.profit) + ' [' + itemsText + ']';
+        return '- ' + formatOrderLabel(t.invoiceNumber || t.id) + ' (' + (dayStr ? dayStr + ', ' : '') + hm + ' • ' + normalizePm(t.paymentMethod) + '): ' + formatRupiah(t.totalAmount || t.grandTotal) + ' | Laba ' + formatRupiah(t.profitAmount != null ? t.profitAmount : t.profit) + ' [' + itemsText + ']';
       }).join('\n');
       const expLines = expList.slice(0, 15).map(e => '- ' + (e.title || 'Pengeluaran') + ' [' + (e.category || 'Operasional') + ']: -' + formatRupiah(e.amount)).join('\n');
-      const msg = '🧾 Catatan Transaksi & Pengeluaran (' + (targetDate || 'Semua Tanggal') + ')\n' +
+      const msg = '🧾 Catatan Transaksi & Pengeluaran (' + (targetDate ? formatKpDateShort(targetDate) : 'Semua Tanggal') + ')\n' +
         'Total: ' + list.length + ' nota | ' + expList.length + ' pengeluaran\n' +
         'Pendapatan: ' + formatRupiah(rev) + '\nKeuntungan Kotor: ' + formatRupiah(prof) +
         '\nPengeluaran: ' + formatRupiah(totalExp) + '\nLaba Bersih: ' + formatRupiah(net) +
@@ -1498,10 +1503,12 @@ Anda dapat mendeploy file `owner.html` dan `index.html` agar memiliki domain web
 
           const prof = Number(t.profitAmount != null ? t.profitAmount : t.profit) || 0;
           const itemDesc = t.itemsSummary || (Array.isArray(t.items) && t.items.length ? t.items.map(it => (it.productName || it.name || 'Item') + ' x' + (it.quantity || it.qty || 1)).join(', ') : 'Pesanan');
-          const timeText = (t.timestamp || t.createdAt) ? String(t.timestamp || t.createdAt).substring(0, 16).replace('T', ' ') : (t.date || '-');
+          const timeTextRaw = (t.timestamp || t.createdAt) ? String(t.timestamp || t.createdAt).substring(0, 16).replace('T', ' ') : (t.date || '-');
+          const dayPrefix = getKpDayName(getKpDateObj(t));
+          const timeText = dayPrefix ? (dayPrefix + ', ' + timeTextRaw) : timeTextRaw;
 
           html += "<tr>" +
-            "<td class='py-2 px-3 font-bold text-orange-400'>#" + escHtml(inv) + "</td>" +
+            "<td class='py-2 px-3 font-bold text-orange-400'>" + escHtml(formatOrderLabel(inv)) + "</td>" +
             "<td class='py-2 px-3 text-slate-400'>" + escHtml(timeText) + "</td>" +
             "<td class='py-2 px-3 text-white'>" + escHtml(t.cashierName || '-') + "</td>" +
             "<td class='py-2 px-3 text-slate-300'>" + escHtml(t.customerName || 'Umum') + "</td>" +
@@ -2083,8 +2090,33 @@ Anda dapat mendeploy file `owner.html` dan `index.html` agar memiliki domain web
     }
 
     // --- MODUL LAPORAN TRANSAKSI (MENU PILIHAN + HARIAN/BULANAN/TAHUNAN + LAPORAN PENGELUARAN) ---
-    const KP_MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun', 'Jul', 'Agt', 'Sep', 'Okt', 'Nov', 'Des'];
+    var KP_DAYS = ['Minggu', 'Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu'];
+    var KP_MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun', 'Jul', 'Agt', 'Sep', 'Okt', 'Nov', 'Des'];
     let kpState = { screen: 'MENU', menuOption: 'ALL', period: 'DAILY', metric: 'COUNT', expenseScope: 'TODAY' };
+
+    function formatOrderLabel(inv) {
+      const raw = String(inv || '-').trim();
+      if (!raw || raw === '-') return 'Order';
+      const stripped = raw.replace(/^#/, '');
+      if (/^TRX(?=[-_]|$)/i.test(stripped)) return stripped.replace(/^TRX/i, 'Order');
+      if (/^Order\b/i.test(stripped)) return stripped;
+      return 'Order ' + stripped;
+    }
+
+    function getKpDayName(val) {
+      let dObj = null;
+      if (val instanceof Date) dObj = val;
+      else if (typeof val === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(val.trim())) {
+        const p = val.trim().split('-').map(Number);
+        dObj = new Date(p[0], p[1] - 1, p[2], 12, 0, 0);
+      } else if (val && typeof val === 'object') {
+        dObj = getKpDateObj(val);
+      } else if (val) {
+        dObj = new Date(val);
+      }
+      if (!dObj || isNaN(dObj.getTime())) return '';
+      return KP_DAYS[dObj.getDay()] || '';
+    }
 
     function getKpDateObj(t) {
       if (t && t.timestampMillis) {
@@ -2111,7 +2143,8 @@ Anda dapat mendeploy file `owner.html` dan `index.html` agar memiliki domain web
     function formatKpDateShort(dateStr) {
       if (!dateStr || !/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) return dateStr || '';
       const parts = dateStr.split('-').map(Number);
-      return parts[2] + ' ' + (KP_MONTHS[parts[1] - 1] || '') + ' ' + parts[0];
+      const dayName = KP_DAYS[new Date(parts[0], parts[1] - 1, parts[2], 12, 0, 0).getDay()] || '';
+      return (dayName ? (dayName + ', ') : '') + parts[2] + ' ' + (KP_MONTHS[parts[1] - 1] || '') + ' ' + parts[0];
     }
 
     function syncKpDateControls() {
@@ -2225,8 +2258,8 @@ Anda dapat mendeploy file `owner.html` dan `index.html` agar memiliki domain web
             key: key, year: y, month: m, day: day,
             startTime: period === 'DAILY' ? new Date(y, m, day).getTime() : (period === 'MONTHLY' ? new Date(y, m, 1).getTime() : new Date(y, 0, 1).getTime()),
             primaryLabel: period === 'DAILY' ? String(day) : (period === 'MONTHLY' ? KP_MONTHS[m] : String(y)),
-            secondaryLabel: period === 'DAILY' ? (KP_MONTHS[m] + '<br>' + y) : (period === 'MONTHLY' ? String(y) : 'Tahun'),
-            fullTitle: period === 'DAILY' ? (day + ' ' + KP_MONTHS[m] + ' ' + y) : (period === 'MONTHLY' ? (KP_MONTHS[m] + ' ' + y) : ('Tahun ' + y)),
+            secondaryLabel: period === 'DAILY' ? (KP_DAYS[d.getDay()].slice(0, 3) + ', ' + KP_MONTHS[m] + '<br>' + y) : (period === 'MONTHLY' ? String(y) : 'Tahun'),
+            fullTitle: period === 'DAILY' ? (KP_DAYS[d.getDay()] + ', ' + day + ' ' + KP_MONTHS[m] + ' ' + y) : (period === 'MONTHLY' ? (KP_MONTHS[m] + ' ' + y) : ('Tahun ' + y)),
             transactions: [], expenses: [], revenue: 0, profit: 0, totalExpense: 0, netProfit: 0
           });
         }
@@ -2643,12 +2676,14 @@ Anda dapat mendeploy file `owner.html` dan `index.html` agar memiliki domain web
         const sortedNotas = sortedAllNotas.filter(t => {
           if (!kpTodayNotaSearch) return true;
           const invStr = String(t.invoiceNumber || t.id || '').toLowerCase();
+          const ordStr = formatOrderLabel(t.invoiceNumber || t.id || '').toLowerCase();
           const custStr = String(t.customerName || '').toLowerCase();
           const cashStr = String(t.cashierName || '').toLowerCase();
           const sumStr = String(t.itemsSummary || '').toLowerCase();
           const itemStr = normalizeKpItems(t.items).map(it => (it.productName || it.name || '') + ' ' + (it.notes || '')).join(' ').toLowerCase();
-          return invStr.includes(kpTodayNotaSearch) || custStr.includes(kpTodayNotaSearch) ||
-            cashStr.includes(kpTodayNotaSearch) || sumStr.includes(kpTodayNotaSearch) || itemStr.includes(kpTodayNotaSearch);
+          return invStr.includes(kpTodayNotaSearch) || ordStr.includes(kpTodayNotaSearch) ||
+            custStr.includes(kpTodayNotaSearch) || cashStr.includes(kpTodayNotaSearch) ||
+            sumStr.includes(kpTodayNotaSearch) || itemStr.includes(kpTodayNotaSearch);
         });
         const matchedExps = sortedAllExps.filter(e => {
           if (!kpTodayNotaSearch) return true;
@@ -2697,13 +2732,16 @@ Anda dapat mendeploy file `owner.html` dan `index.html` agar memiliki domain web
           return;
         }
         const headerBanner = "<div class='px-4 sm:px-5 py-2 bg-slate-50 border-b border-slate-200 flex items-center justify-between text-[11px] font-bold text-[#00796B]'>" +
-          "<span>" + (isTargetToday ? 'Catatan Transaksi per Nota Hari Ini' : ('Catatan Transaksi per Nota (' + targetFormatted + ')')) + "</span>" +
+          "<span>" + (isTargetToday ? ('Catatan Transaksi per Nota Hari Ini • ' + targetFormatted) : ('Catatan Transaksi per Nota (' + targetFormatted + ')')) + "</span>" +
           "<span>" + sortedNotas.length + " Nota • " + totalOrderedItems + " Item Pesanan</span>" +
         "</div>";
         listEl.innerHTML = headerBanner + sortedNotas.map(t => {
           const invKey = String(t.invoiceNumber || t.id || '-');
+          const orderLabel = formatOrderLabel(invKey);
           const d = getKpDateObj(t);
           const hhmm = String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0');
+          const dOnly = extractDateStr(t) || getLocalDateStr(d);
+          const dayDateLbl = formatKpDateShort(dOnly) || ((getKpDayName(d) ? getKpDayName(d) + ', ' : '') + dOnly);
           const pm = normalizePm(t.paymentMethod);
           const cust = t.customerName || 'Pelanggan Umum';
           const cashier = t.cashierName || 'Kasir';
@@ -2741,8 +2779,8 @@ Anda dapat mendeploy file `owner.html` dan `index.html` agar memiliki domain web
           return "<div onclick=\"openKpSingleNotaAlert('" + safeKey + "')\" class='p-4 sm:px-5 flex items-start justify-between gap-3 hover:bg-teal-50/30 cursor-pointer'>" +
             "<div class='flex-1 min-w-0'>" +
               "<div class='flex items-center gap-1.5 flex-wrap'>" +
-                "<span class='text-sm font-extrabold text-slate-900 font-mono'>#" + escHtml(invKey) + "</span>" +
-                "<span class='px-2 py-0.5 rounded-full bg-teal-50 text-[#00796B] border border-teal-200 text-[10px] font-bold'>" + hhmm + " • " + escHtml(pm) + "</span>" +
+                "<span class='text-sm font-extrabold text-slate-900 font-mono'>" + escHtml(orderLabel) + "</span>" +
+                "<span class='px-2 py-0.5 rounded-full bg-teal-50 text-[#00796B] border border-teal-200 text-[10px] font-bold'>" + escHtml(dayDateLbl) + " • " + hhmm + " • " + escHtml(pm) + "</span>" +
                 "<span class='text-[11px] text-slate-600 font-medium'>👤 " + escHtml(cust) + " (" + escHtml(orderTypeLbl) + escHtml(tableLbl) + ")</span>" +
                 "<span class='text-[11px] text-slate-400'>• Kasir: " + escHtml(cashier) + "</span>" +
               "</div>" +
@@ -2754,8 +2792,8 @@ Anda dapat mendeploy file `owner.html` dan `index.html` agar memiliki domain web
               "</div>" +
             "</div>" +
             "<div class='flex flex-col items-center gap-1 shrink-0 pt-0.5'>" +
-              "<button type='button' onclick=\"event.stopPropagation();deleteKpSingleNota('" + safeKey + "')\" title='Hapus Nota' class='w-8 h-8 rounded-lg hover:bg-rose-50 text-rose-500 font-bold cursor-pointer'>🗑️</button>" +
-              "<button type='button' onclick=\"event.stopPropagation();openKpSingleNotaAlert('" + safeKey + "')\" title='Lihat Struk' class='w-8 h-8 rounded-lg hover:bg-teal-50 text-[#00796B] font-bold cursor-pointer'>→</button>" +
+              "<button type='button' onclick=\"event.stopPropagation();deleteKpSingleNota('" + safeKey + "')\" title='Hapus " + escHtml(orderLabel) + "' class='w-8 h-8 rounded-lg hover:bg-rose-50 text-rose-500 font-bold cursor-pointer'>🗑️</button>" +
+              "<button type='button' onclick=\"event.stopPropagation();openKpSingleNotaAlert('" + safeKey + "')\" title='Lihat " + escHtml(orderLabel) + "' class='w-8 h-8 rounded-lg hover:bg-teal-50 text-[#00796B] font-bold cursor-pointer'>→</button>" +
             "</div>" +
           "</div>";
         }).join('');
@@ -2856,11 +2894,12 @@ Anda dapat mendeploy file `owner.html` dan `index.html` agar memiliki domain web
         const lines = sortedNotas.slice(0, 25).map(t => {
           const d = getKpDateObj(t);
           const hhmm = String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0');
+          const dayStr = getKpDayName(d);
           const itemsArr = normalizeKpItems(t.items);
           const itemsText = itemsArr.length > 0
             ? itemsArr.map(it => (it.productName || it.name || 'Item') + ' x' + (it.quantity || it.qty || 1)).join(', ')
             : (t.itemsSummary || '-');
-          return '- #' + (t.invoiceNumber || t.id) + ' (' + hhmm + ' - ' + (t.paymentMethod || 'CASH') + '): ' + formatRupiah(t.totalAmount || t.grandTotal) + ' | Laba ' + formatRupiah(t.profitAmount != null ? t.profitAmount : t.profit) + ' [' + itemsText + ']';
+          return '- ' + formatOrderLabel(t.invoiceNumber || t.id) + ' (' + (dayStr ? dayStr + ', ' : '') + hhmm + ' - ' + (t.paymentMethod || 'CASH') + '): ' + formatRupiah(t.totalAmount || t.grandTotal) + ' | Laba ' + formatRupiah(t.profitAmount != null ? t.profitAmount : t.profit) + ' [' + itemsText + ']';
         }).join('\n');
         const expLines = filteredExps.slice(0, 15).map(e => '- ' + (e.title || 'Pengeluaran') + ' [' + (e.category || 'Operasional') + ']: -' + formatRupiah(e.amount)).join('\n');
         txt = 'Laporan Transaksi Tanggal ' + targetFormatted + ' (PER NOTA)\nTotal Nota: ' + sortedNotas.length + '\nPendapatan: ' + formatRupiah(rev) + '\nKeuntungan Kotor: ' + formatRupiah(prof) + '\nPengeluaran: ' + formatRupiah(totalExp) + '\nLaba Bersih: ' + formatRupiah(prof - totalExp) + '\n\n' + (lines || 'Belum ada transaksi.') + (expLines ? ('\n\nPENGELUARAN:\n' + expLines) : '');
@@ -2878,7 +2917,7 @@ Anda dapat mendeploy file `owner.html` dan `index.html` agar memiliki domain web
       const target = cachedTransactions.find(t => String(t.invoiceNumber || t.id || '-') === invKey);
       if (!target) return;
       const amt = Number(target.totalAmount || target.grandTotal) || 0;
-      if (!confirm('Hapus nota #' + invKey + ' (' + formatRupiah(amt) + ')?')) return;
+      if (!confirm('Hapus ' + formatOrderLabel(invKey) + ' (' + formatRupiah(amt) + ')?')) return;
       const docKey = encodeURIComponent(target.invoiceNumber || target.id);
       const dStr = extractDateStr(target);
       await Promise.all([
@@ -2892,13 +2931,15 @@ Anda dapat mendeploy file `owner.html` dan `index.html` agar memiliki domain web
       if (!target) return;
       const d = getKpDateObj(target);
       const hhmm = String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0');
+      const dOnly = extractDateStr(target) || getLocalDateStr(d);
+      const dayDateLbl = formatKpDateShort(dOnly) || dOnly;
       const amt = Number(target.totalAmount || target.grandTotal) || 0;
       const prof = Number(target.profitAmount != null ? target.profitAmount : target.profit) || 0;
       const itemsArr = normalizeKpItems(target.items);
       const itemsText = itemsArr.length
         ? itemsArr.map(it => '- ' + (it.productName || it.name || 'Item') + ' x' + (it.quantity || it.qty || 1) + ' (' + formatRupiah(it.subtotal || it.total || 0) + ')').join('\n')
         : (target.itemsSummary || ('Total item: ' + (target.totalItemsCount || 1)));
-      alert('Detail Nota #' + invKey + '\nWaktu: ' + hhmm + ' | Metode: ' + (target.paymentMethod || 'CASH') + '\nPelanggan: ' + (target.customerName || 'Umum') + '\nPendapatan: ' + formatRupiah(amt) + '\nKeuntungan: ' + formatRupiah(prof) + '\n\nItem:\n' + itemsText);
+      alert('Detail ' + formatOrderLabel(invKey) + '\nHari/Tanggal: ' + dayDateLbl + ' • ' + hhmm + '\nMetode: ' + (target.paymentMethod || 'CASH') + '\nPelanggan: ' + (target.customerName || 'Umum') + '\nPendapatan: ' + formatRupiah(amt) + '\nKeuntungan: ' + formatRupiah(prof) + '\n\nItem:\n' + itemsText);
     }
     async function deleteKpPeriod(key, title) {
       const records = aggregateKpRecords(filterKpTrxs(), kpState.period, filterKpExpenses());
@@ -2933,7 +2974,7 @@ Anda dapat mendeploy file `owner.html` dan `index.html` agar memiliki domain web
       const records = aggregateKpRecords(filterKpTrxs(), kpState.period, filterKpExpenses());
       const rec = records.find(r => r.key === key);
       if (!rec) return;
-      const lines = rec.transactions.slice(0, 15).map(t => '#' + (t.invoiceNumber || t.id) + ' - ' + formatRupiah(t.totalAmount || t.grandTotal)).join('\n');
+      const lines = rec.transactions.slice(0, 15).map(t => formatOrderLabel(t.invoiceNumber || t.id) + ' - ' + formatRupiah(t.totalAmount || t.grandTotal)).join('\n');
       const expLines = rec.expenses.slice(0, 15).map(e => '- ' + (e.title || 'Pengeluaran') + ' (' + (e.category || 'Operasional') + '): -' + formatRupiah(e.amount)).join('\n');
       alert('Rincian ' + rec.fullTitle + ' (' + rec.transactions.length + ' transaksi • ' + rec.expenses.length + ' pengeluaran)\nPendapatan: ' + formatRupiah(rec.revenue) + '\nKeuntungan Kotor: ' + formatRupiah(rec.profit) + '\nPengeluaran: ' + formatRupiah(rec.totalExpense) + '\nLaba Bersih: ' + formatRupiah(rec.netProfit) + '\n\nTRANSAKSI:\n' + (lines || '-') + (expLines ? ('\n\nPENGELUARAN:\n' + expLines) : ''));
     }

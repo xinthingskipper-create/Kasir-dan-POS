@@ -38,6 +38,7 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.launch
+import org.json.JSONArray
 import java.util.Calendar
 
 data class CartItem(
@@ -660,6 +661,198 @@ class PosViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    // --- Pengaturan Kategori, Satuan (Porsi/Pcs) & Jumlah Meja ---
+    private fun loadStringListPref(key: String, defaults: List<String>): List<String> {
+        val raw = prefs.getString(key, null) ?: return defaults
+        return try {
+            val arr = JSONArray(raw)
+            val list = mutableListOf<String>()
+            for (i in 0 until arr.length()) {
+                val item = arr.optString(i).trim()
+                if (item.isNotBlank() && list.none { it.equals(item, ignoreCase = true) }) {
+                    list.add(item)
+                }
+            }
+            if (list.isEmpty()) defaults else list
+        } catch (_: Throwable) {
+            defaults
+        }
+    }
+
+    private fun saveStringListPref(key: String, values: List<String>) {
+        val arr = JSONArray()
+        values.forEach { arr.put(it) }
+        prefs.edit().putString(key, arr.toString()).apply()
+    }
+
+    private val _configuredCategories = MutableStateFlow(
+        loadStringListPref(KEY_CUSTOM_CATEGORIES, DEFAULT_CATEGORIES)
+    )
+    val configuredCategories: StateFlow<List<String>> = _configuredCategories.asStateFlow()
+
+    private val _configuredUnits = MutableStateFlow(
+        loadStringListPref(KEY_CUSTOM_UNITS, DEFAULT_UNITS)
+    )
+    val configuredUnits: StateFlow<List<String>> = _configuredUnits.asStateFlow()
+
+    private val _foodDefaultUnit = MutableStateFlow(
+        prefs.getString(KEY_FOOD_DEFAULT_UNIT, DEFAULT_FOOD_UNIT)?.trim()?.ifBlank { DEFAULT_FOOD_UNIT }
+            ?: DEFAULT_FOOD_UNIT
+    )
+    val foodDefaultUnit: StateFlow<String> = _foodDefaultUnit.asStateFlow()
+
+    private val _drinkDefaultUnit = MutableStateFlow(
+        prefs.getString(KEY_DRINK_DEFAULT_UNIT, DEFAULT_DRINK_UNIT)?.trim()?.ifBlank { DEFAULT_DRINK_UNIT }
+            ?: DEFAULT_DRINK_UNIT
+    )
+    val drinkDefaultUnit: StateFlow<String> = _drinkDefaultUnit.asStateFlow()
+
+    private val _tableCount = MutableStateFlow(
+        prefs.getInt(KEY_TABLE_COUNT, DEFAULT_TABLE_COUNT).coerceIn(0, 100)
+    )
+    val tableCount: StateFlow<Int> = _tableCount.asStateFlow()
+
+    fun defaultUnitForCategory(category: String): String {
+        val normalized = category.trim().lowercase(java.util.Locale.ROOT)
+        return when {
+            normalized.contains("makan") || normalized.contains("food") -> _foodDefaultUnit.value
+            normalized.contains("minum") || normalized.contains("drink") ||
+                normalized.contains("kopi") || normalized.contains("teh") ||
+                normalized.contains("jus") || normalized.contains("juice") -> _drinkDefaultUnit.value
+            else -> _configuredUnits.value.firstOrNull { it.equals("pcs", ignoreCase = true) }
+                ?: _configuredUnits.value.firstOrNull()
+                ?: "pcs"
+        }
+    }
+
+    fun addCategory(name: String): Boolean {
+        val clean = name.trim()
+        if (clean.isEmpty()) return false
+        val current = _configuredCategories.value
+        if (current.any { it.equals(clean, ignoreCase = true) }) return false
+        val updated = current + clean
+        _configuredCategories.value = updated
+        saveStringListPref(KEY_CUSTOM_CATEGORIES, updated)
+        return true
+    }
+
+    fun renameCategory(oldName: String, newName: String): Boolean {
+        val cleanOld = oldName.trim()
+        val cleanNew = newName.trim()
+        if (cleanOld.isEmpty() || cleanNew.isEmpty()) return false
+        val current = _configuredCategories.value
+        val duplicateWithOther = current.any {
+            !it.equals(cleanOld, ignoreCase = true) && it.equals(cleanNew, ignoreCase = true)
+        }
+        if (duplicateWithOther) return false
+        val updated = current.map { if (it.equals(cleanOld, ignoreCase = true)) cleanNew else it }
+            .let { if (it.any { c -> c.equals(cleanNew, ignoreCase = true) }) it else it + cleanNew }
+        _configuredCategories.value = updated
+        saveStringListPref(KEY_CUSTOM_CATEGORIES, updated)
+        if (_selectedCategory.value?.equals(cleanOld, ignoreCase = true) == true) {
+            _selectedCategory.value = cleanNew
+        }
+        viewModelScope.launch {
+            repository.renameProductCategory(cleanOld, cleanNew)
+        }
+        return true
+    }
+
+    fun removeCategory(name: String): Boolean {
+        val clean = name.trim()
+        val current = _configuredCategories.value
+        if (current.size <= 1) return false
+        val updated = current.filterNot { it.equals(clean, ignoreCase = true) }
+        if (updated.size == current.size) return false
+        _configuredCategories.value = updated
+        saveStringListPref(KEY_CUSTOM_CATEGORIES, updated)
+        if (_selectedCategory.value?.equals(clean, ignoreCase = true) == true) {
+            _selectedCategory.value = null
+        }
+        return true
+    }
+
+    fun addUnit(unitName: String): Boolean {
+        val clean = unitName.trim()
+        if (clean.isEmpty()) return false
+        val current = _configuredUnits.value
+        if (current.any { it.equals(clean, ignoreCase = true) }) return false
+        val updated = current + clean
+        _configuredUnits.value = updated
+        saveStringListPref(KEY_CUSTOM_UNITS, updated)
+        return true
+    }
+
+    fun removeUnit(unitName: String): Boolean {
+        val clean = unitName.trim()
+        val current = _configuredUnits.value
+        if (current.size <= 1) return false
+        if (clean.equals(_foodDefaultUnit.value, ignoreCase = true) ||
+            clean.equals(_drinkDefaultUnit.value, ignoreCase = true)
+        ) {
+            return false
+        }
+        val updated = current.filterNot { it.equals(clean, ignoreCase = true) }
+        if (updated.size == current.size) return false
+        _configuredUnits.value = updated
+        saveStringListPref(KEY_CUSTOM_UNITS, updated)
+        return true
+    }
+
+    fun setFoodDefaultUnit(unit: String, applyToExistingProducts: Boolean = false) {
+        val clean = unit.trim().ifBlank { DEFAULT_FOOD_UNIT }
+        if (_configuredUnits.value.none { it.equals(clean, ignoreCase = true) }) {
+            addUnit(clean)
+        }
+        _foodDefaultUnit.value = clean
+        prefs.edit().putString(KEY_FOOD_DEFAULT_UNIT, clean).apply()
+        if (applyToExistingProducts) {
+            applyUnitToCategoryProducts("Makanan", clean)
+        }
+    }
+
+    fun setDrinkDefaultUnit(unit: String, applyToExistingProducts: Boolean = false) {
+        val clean = unit.trim().ifBlank { DEFAULT_DRINK_UNIT }
+        if (_configuredUnits.value.none { it.equals(clean, ignoreCase = true) }) {
+            addUnit(clean)
+        }
+        _drinkDefaultUnit.value = clean
+        prefs.edit().putString(KEY_DRINK_DEFAULT_UNIT, clean).apply()
+        if (applyToExistingProducts) {
+            applyUnitToCategoryProducts("Minuman", clean)
+        }
+    }
+
+    fun applyUnitToCategoryProducts(category: String, unit: String) {
+        val cleanCat = category.trim()
+        val cleanUnit = unit.trim()
+        if (cleanCat.isEmpty() || cleanUnit.isEmpty()) return
+        viewModelScope.launch {
+            repository.updateUnitByCategory(cleanCat, cleanUnit)
+        }
+    }
+
+    fun setTableCount(count: Int) {
+        val clamped = count.coerceIn(0, 100)
+        _tableCount.value = clamped
+        prefs.edit().putInt(KEY_TABLE_COUNT, clamped).apply()
+    }
+
+    fun resetOperationalSettingsToDefaults() {
+        _configuredCategories.value = DEFAULT_CATEGORIES
+        _configuredUnits.value = DEFAULT_UNITS
+        _foodDefaultUnit.value = DEFAULT_FOOD_UNIT
+        _drinkDefaultUnit.value = DEFAULT_DRINK_UNIT
+        _tableCount.value = DEFAULT_TABLE_COUNT
+        saveStringListPref(KEY_CUSTOM_CATEGORIES, DEFAULT_CATEGORIES)
+        saveStringListPref(KEY_CUSTOM_UNITS, DEFAULT_UNITS)
+        prefs.edit()
+            .putString(KEY_FOOD_DEFAULT_UNIT, DEFAULT_FOOD_UNIT)
+            .putString(KEY_DRINK_DEFAULT_UNIT, DEFAULT_DRINK_UNIT)
+            .putInt(KEY_TABLE_COUNT, DEFAULT_TABLE_COUNT)
+            .apply()
+    }
+
     // --- Shift Closings (Tutup Kasir) ---
     val allShiftClosings: StateFlow<List<com.example.data.model.ShiftClosing>> = repository.getAllShiftClosings()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
@@ -925,8 +1118,25 @@ class PosViewModel(application: Application) : AndroidViewModel(application) {
     val allProducts: StateFlow<List<Product>> = repository.getAllProducts()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
-    val categories: StateFlow<List<String>> = repository.getAllCategories()
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+    val categories: StateFlow<List<String>> = combine(
+        _configuredCategories,
+        repository.getAllCategories()
+    ) { configured, dbCategories ->
+        val merged = mutableListOf<String>()
+        configured.forEach { cat ->
+            val trimmed = cat.trim()
+            if (trimmed.isNotBlank() && merged.none { it.equals(trimmed, ignoreCase = true) }) {
+                merged.add(trimmed)
+            }
+        }
+        dbCategories.forEach { cat ->
+            val trimmed = cat.trim()
+            if (trimmed.isNotBlank() && merged.none { it.equals(trimmed, ignoreCase = true) }) {
+                merged.add(trimmed)
+            }
+        }
+        merged
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), _configuredCategories.value)
 
     val lowStockProducts: StateFlow<List<Product>> = repository.getLowStockProducts()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
@@ -2489,5 +2699,17 @@ class PosViewModel(application: Application) : AndroidViewModel(application) {
                 DateFilter.ALL -> "Semua Waktu"
             }
         }
+
+        const val KEY_CUSTOM_CATEGORIES = "KEY_CUSTOM_CATEGORIES"
+        const val KEY_CUSTOM_UNITS = "KEY_CUSTOM_UNITS"
+        const val KEY_FOOD_DEFAULT_UNIT = "KEY_FOOD_DEFAULT_UNIT"
+        const val KEY_DRINK_DEFAULT_UNIT = "KEY_DRINK_DEFAULT_UNIT"
+        const val KEY_TABLE_COUNT = "KEY_TABLE_COUNT"
+
+        val DEFAULT_CATEGORIES = listOf("Makanan", "Minuman", "Snack")
+        val DEFAULT_UNITS = listOf("porsi", "pcs", "cup", "botol", "bks", "paket")
+        const val DEFAULT_FOOD_UNIT = "porsi"
+        const val DEFAULT_DRINK_UNIT = "pcs"
+        const val DEFAULT_TABLE_COUNT = 5
     }
 }

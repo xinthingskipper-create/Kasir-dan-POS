@@ -302,6 +302,9 @@ fun StoreSettingsScreen(viewModel: PosViewModel) {
                 }
             }
 
+            // --- KARTU 1A: PENGATURAN KATEGORI, SATUAN MAKANAN/MINUMAN (PORSI/PCS) & JUMLAH MEJA ---
+            StoreOperationalSettingsCard(viewModel = viewModel)
+
             // --- KARTU 1B: LAYANAN LATAR BELAKANG & PUSH NOTIFIKASI STOK ---
             Card(
                 shape = RoundedCornerShape(12.dp),

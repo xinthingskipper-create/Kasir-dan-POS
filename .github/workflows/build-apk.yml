@@ -45,6 +45,8 @@ jobs:
             SDKMANAGER="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
           elif [ -x "$ANDROID_HOME/tools/bin/sdkmanager" ]; then
             SDKMANAGER="$ANDROID_HOME/tools/bin/sdkmanager"
+          elif [ -d "$ANDROID_HOME/cmdline-tools" ]; then
+            SDKMANAGER="$(find "$ANDROID_HOME/cmdline-tools" -maxdepth 3 -type f -name sdkmanager 2>/dev/null | head -n 1 || true)"
           fi
 
           if [ -n "$SDKMANAGER" ]; then

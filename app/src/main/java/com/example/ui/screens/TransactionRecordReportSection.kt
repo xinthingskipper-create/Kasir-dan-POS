@@ -177,6 +177,30 @@ private val INDONESIAN_SHORT_MONTHS = listOf(
     "Jul", "Agt", "Sep", "Okt", "Nov", "Des"
 )
 
+private val INDONESIAN_DAY_NAMES = listOf(
+    "Minggu", "Senin", "Selasa", "Rabu", "Kamis", "Jumat", "Sabtu"
+)
+
+internal fun getKpDayName(millis: Long): String {
+    val cal = Calendar.getInstance().apply { timeInMillis = millis }
+    val idx = cal.get(Calendar.DAY_OF_WEEK) - Calendar.SUNDAY
+    return INDONESIAN_DAY_NAMES.getOrElse(idx) { "" }
+}
+
+internal fun formatOrderLabel(invoiceNumber: String?): String {
+    val raw = invoiceNumber.orEmpty().trim()
+    if (raw.isEmpty()) return "Order"
+    val noHash = if (raw.startsWith("#")) raw.drop(1).trim() else raw
+    return when {
+        noHash.startsWith("TRX", ignoreCase = true) -> {
+            val rest = noHash.substring(3)
+            if (rest.isEmpty() || rest.startsWith("-") || rest.startsWith(" ")) "Order$rest" else "Order-$rest"
+        }
+        noHash.startsWith("Order", ignoreCase = true) -> noHash
+        else -> "Order $noHash"
+    }
+}
+
 private val EMERALD_PRIMARY = Color(0xFF00796B)
 private val EMERALD_DARK = Color(0xFF00695C)
 private val SEGMENT_INACTIVE_BG = Color(0xFFCFD4DC)
@@ -312,11 +336,12 @@ fun aggregateTransactionRecords(
             }
         }
 
+        val dayName = getKpDayName(anchorTimestamp)
         val (primary, secondary, fullTitle) = when (period) {
             TransactionRecordPeriod.DAILY -> Triple(
                 day.toString(),
                 "$monthShort\n$year",
-                "$day $monthShort $year"
+                "$dayName, $day $monthShort $year"
             )
             TransactionRecordPeriod.MONTHLY -> Triple(
                 monthShort,
@@ -625,10 +650,20 @@ private fun isSameLocalDay(millisA: Long, millisB: Long): Boolean {
 
 internal fun formatKpDateShort(millis: Long): String {
     val cal = Calendar.getInstance().apply { timeInMillis = millis }
+    val dayName = getKpDayName(millis)
     val day = cal.get(Calendar.DAY_OF_MONTH)
     val month = INDONESIAN_SHORT_MONTHS.getOrElse(cal.get(Calendar.MONTH)) { "" }
     val year = cal.get(Calendar.YEAR)
-    return "$day $month $year"
+    return "$dayName, $day $month $year"
+}
+
+private fun formatKpDateDayTime(millis: Long): String {
+    val cal = Calendar.getInstance().apply { timeInMillis = millis }
+    val dayName = getKpDayName(millis)
+    val day = cal.get(Calendar.DAY_OF_MONTH)
+    val month = INDONESIAN_SHORT_MONTHS.getOrElse(cal.get(Calendar.MONTH)) { "" }
+    val timeStr = SimpleDateFormat("HH:mm", Locale("id", "ID")).format(Date(millis))
+    return "$dayName, $day $month • $timeStr"
 }
 
 private fun shiftLocalDay(millis: Long, deltaDays: Int): Long {
@@ -1098,7 +1133,10 @@ fun TransactionExpenseReportPanel(
 
     val scopeLabel = when (scopeOption) {
         TransactionReportMenuOption.TODAY -> formattedDate
-        TransactionReportMenuOption.THIS_MONTH -> "Bulan (${formattedDate.substringAfter(" ")})"
+        TransactionReportMenuOption.THIS_MONTH -> {
+            val cal = Calendar.getInstance().apply { timeInMillis = selectedDateMillis }
+            "Bulan (${INDONESIAN_SHORT_MONTHS.getOrElse(cal.get(Calendar.MONTH)) { "" }} ${cal.get(Calendar.YEAR)})"
+        }
         TransactionReportMenuOption.THIS_YEAR -> {
             val cal = Calendar.getInstance().apply { timeInMillis = selectedDateMillis }
             "Tahun ${cal.get(Calendar.YEAR)}"
@@ -1780,7 +1818,7 @@ fun TransactionRecordReportSection(
                 appendLine("✅ Laba Bersih: ${BluetoothPrinterManager.formatRupiah(netProf)}")
                 appendLine("──────────────────────")
                 sortedPerNotaTransactions.take(25).forEach { trx ->
-                    appendLine("• *#${trx.invoiceNumber}* (${timeFmt.format(Date(trx.timestamp))} • ${trx.paymentMethod.label})")
+                    appendLine("• *${formatOrderLabel(trx.invoiceNumber)}* (${getKpDayName(trx.timestamp)}, ${timeFmt.format(Date(trx.timestamp))} • ${trx.paymentMethod.label})")
                     appendLine("  Pendapatan: ${BluetoothPrinterManager.formatRupiah(trx.grandTotal)} | Keuntungan: ${BluetoothPrinterManager.formatRupiah(trx.profitAmount)}")
                 }
                 if (sortedPerNotaExpenses.isNotEmpty()) {
@@ -2122,12 +2160,13 @@ fun TransactionRecordReportSection(
     // Confirm Single Nota Delete Dialog (from Today Per-Nota list)
     if (singleNotaToDelete != null) {
         val trx = singleNotaToDelete!!
+        val orderLabel = formatOrderLabel(trx.invoiceNumber)
         AlertDialog(
             onDismissRequest = { singleNotaToDelete = null },
-            title = { Text("Hapus Nota ${trx.invoiceNumber}?", fontWeight = FontWeight.Bold) },
+            title = { Text("Hapus $orderLabel?", fontWeight = FontWeight.Bold) },
             text = {
                 Text(
-                    "Transaksi nota ${trx.invoiceNumber} senilai " +
+                    "Transaksi $orderLabel senilai " +
                         "${BluetoothPrinterManager.formatRupiah(trx.grandTotal)} akan dihapus."
                 )
             },
@@ -2566,7 +2605,7 @@ private fun RightPerNotaListPane(
     val todayStart = PosViewModel.getStartOfDay(0)
     val isToday = selectedDateMillis == null || isSameLocalDay(selectedDateMillis, todayStart)
     val dateLabel = remember(selectedDateMillis) {
-        selectedDateMillis?.let { formatKpDateShort(it) } ?: "Hari Ini"
+        selectedDateMillis?.let { formatKpDateShort(it) } ?: "Hari Ini (${formatKpDateShort(todayStart)})"
     }
 
     val totalRevenue = remember(transactions) { transactions.sumOf { it.grandTotal } }
@@ -2679,12 +2718,22 @@ private fun RightPerNotaListPane(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Text(
-                    text = if (isToday) "Catatan Transaksi per Nota Hari Ini" else "Catatan Transaksi per Nota ($dateLabel)",
-                    fontSize = 12.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = EMERALD_PRIMARY
-                )
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = if (isToday) "Catatan Transaksi per Nota Hari Ini" else "Catatan Transaksi per Nota ($dateLabel)",
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = EMERALD_PRIMARY
+                    )
+                    if (isToday) {
+                        Text(
+                            text = formatKpDateShort(selectedDateMillis ?: todayStart),
+                            fontSize = 10.5.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = Color(0xFF0F766E)
+                        )
+                    }
+                }
                 Surface(
                     shape = RoundedCornerShape(999.dp),
                     color = EMERALD_PRIMARY.copy(alpha = 0.12f)
@@ -2703,7 +2752,7 @@ private fun RightPerNotaListPane(
             visibleNotas.forEach { trx ->
                 TransactionNotaRecordRow(
                     transaction = trx,
-                    timeText = timeFmt.format(Date(trx.timestamp)),
+                    timeText = formatKpDateDayTime(trx.timestamp),
                     onDeleteClick = { onDeleteTransaction(trx) },
                     onDetailClick = { onOpenReceipt(trx) }
                 )
@@ -2903,6 +2952,7 @@ private fun TransactionNotaRecordRow(
     onDeleteClick: () -> Unit,
     onDetailClick: () -> Unit
 ) {
+    val orderLabel = formatOrderLabel(transaction.invoiceNumber)
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -2911,10 +2961,10 @@ private fun TransactionNotaRecordRow(
             .testTag("row_record_nota_${transaction.invoiceNumber}"),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        // Left Column: Nota number, timestamp, payment method & item count
-        Column(modifier = Modifier.width(122.dp)) {
+        // Left Column: Order number, day+timestamp, payment method & item count
+        Column(modifier = Modifier.width(142.dp)) {
             Text(
-                text = "#${transaction.invoiceNumber}",
+                text = orderLabel,
                 fontSize = 14.sp,
                 fontWeight = FontWeight.ExtraBold,
                 color = Color(0xFF0F172A),
@@ -2927,7 +2977,7 @@ private fun TransactionNotaRecordRow(
                 fontSize = 11.sp,
                 fontWeight = FontWeight.SemiBold,
                 color = EMERALD_PRIMARY,
-                maxLines = 1,
+                maxLines = 2,
                 overflow = TextOverflow.Ellipsis
             )
             Spacer(modifier = Modifier.height(2.dp))
@@ -2981,7 +3031,7 @@ private fun TransactionNotaRecordRow(
             ) {
                 Icon(
                     imageVector = Icons.Outlined.Delete,
-                    contentDescription = "Hapus Nota ${transaction.invoiceNumber}",
+                    contentDescription = "Hapus $orderLabel",
                     tint = Color(0xFFEF4444),
                     modifier = Modifier.size(21.dp)
                 )
@@ -2994,7 +3044,7 @@ private fun TransactionNotaRecordRow(
             ) {
                 Icon(
                     imageVector = Icons.AutoMirrored.Filled.ArrowForward,
-                    contentDescription = "Lihat Nota ${transaction.invoiceNumber}",
+                    contentDescription = "Lihat $orderLabel",
                     tint = EMERALD_PRIMARY,
                     modifier = Modifier.size(21.dp)
                 )
@@ -3017,8 +3067,8 @@ private fun TransactionPeriodRecordRow(
             .testTag("row_record_period_${record.periodKey}"),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        // Left Column: Date/Month/Year + transaction & expense count
-        Column(modifier = Modifier.width(114.dp)) {
+        // Left Column: Date/Month/Year + day name + transaction & expense count
+        Column(modifier = Modifier.width(118.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
                     text = record.primaryLabel,
@@ -3035,7 +3085,15 @@ private fun TransactionPeriodRecordRow(
                     color = Color(0xFF475569)
                 )
             }
-            Spacer(modifier = Modifier.height(4.dp))
+            if (record.periodKey.length == 10) {
+                Text(
+                    text = getKpDayName(record.startTime),
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = EMERALD_PRIMARY
+                )
+            }
+            Spacer(modifier = Modifier.height(3.dp))
             Text(
                 text = "${record.transactionCount} transaksi",
                 fontSize = 12.5.sp,
@@ -3219,15 +3277,16 @@ private fun TransactionPeriodDetailDialog(
                                         .padding(horizontal = 12.dp, vertical = 10.dp),
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
+                                    val orderLabel = formatOrderLabel(trx.invoiceNumber)
                                     Column(modifier = Modifier.weight(1f)) {
                                         Text(
-                                            text = "${trx.invoiceNumber} • ${trx.customerName}",
+                                            text = "$orderLabel • ${trx.customerName}",
                                             fontSize = 12.5.sp,
                                             fontWeight = FontWeight.Bold,
                                             color = Color(0xFF0F172A)
                                         )
                                         Text(
-                                            text = "${timeFmt.format(Date(trx.timestamp))} • ${trx.paymentMethod.label} • ${trx.cashierName}",
+                                            text = "${getKpDayName(trx.timestamp)}, ${timeFmt.format(Date(trx.timestamp))} • ${trx.paymentMethod.label} • ${trx.cashierName}",
                                             fontSize = 10.5.sp,
                                             color = Color(0xFF64748B)
                                         )
@@ -3244,7 +3303,7 @@ private fun TransactionPeriodDetailDialog(
                                     ) {
                                         Icon(
                                             imageVector = Icons.Outlined.Delete,
-                                            contentDescription = "Hapus Transaksi ${trx.invoiceNumber}",
+                                            contentDescription = "Hapus Transaksi $orderLabel",
                                             tint = Color(0xFFEF4444),
                                             modifier = Modifier.size(18.dp)
                                         )
@@ -3330,7 +3389,7 @@ private fun TransactionPeriodDetailDialog(
         val trx = pendingDeleteTrx!!
         AlertDialog(
             onDismissRequest = { pendingDeleteTrx = null },
-            title = { Text("Hapus Transaksi ${trx.invoiceNumber}?") },
+            title = { Text("Hapus Transaksi ${formatOrderLabel(trx.invoiceNumber)}?") },
             text = { Text("Transaksi senilai ${BluetoothPrinterManager.formatRupiah(trx.grandTotal)} akan dihapus dari record.") },
             confirmButton = {
                 Button(

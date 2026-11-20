@@ -157,6 +157,14 @@ class PosRepository(private val database: PosDatabase) {
         productDao.updateStock(productId, newStock)
     }
 
+    suspend fun renameProductCategory(oldCategory: String, newCategory: String) = withContext(Dispatchers.IO) {
+        productDao.renameCategory(oldCategory, newCategory)
+    }
+
+    suspend fun updateUnitByCategory(category: String, newUnit: String) = withContext(Dispatchers.IO) {
+        productDao.updateUnitByCategory(category, newUnit)
+    }
+
     // --- Transactions & POS Checkout ---
     fun getAllTransactions(): Flow<List<Transaction>> = transactionDao.getAllTransactions()
 

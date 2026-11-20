@@ -204,6 +204,7 @@ fun DailyReportScreen(viewModel: PosViewModel) {
             val query = orderSearchQuery.trim().lowercase(Locale.ROOT)
             listBySync.filter { trx ->
                 trx.invoiceNumber.lowercase(Locale.ROOT).contains(query) ||
+                formatOrderLabel(trx.invoiceNumber).lowercase(Locale.ROOT).contains(query) ||
                 trx.customerName.lowercase(Locale.ROOT).contains(query) ||
                 trx.tableNumber.lowercase(Locale.ROOT).contains(query) ||
                 trx.paymentMethod.name.lowercase(Locale.ROOT).contains(query) ||
@@ -354,7 +355,7 @@ fun DailyReportScreen(viewModel: PosViewModel) {
                             viewModel.deleteSingleTransaction(trx.id) { ok ->
                                 Toast.makeText(
                                     context,
-                                    if (ok) "Transaksi ${trx.invoiceNumber} dihapus" else "Gagal menghapus transaksi",
+                                    if (ok) "Transaksi ${formatOrderLabel(trx.invoiceNumber)} dihapus" else "Gagal menghapus transaksi",
                                     Toast.LENGTH_SHORT
                                 ).show()
                             }
@@ -1176,8 +1177,8 @@ private fun TransactionRowCard(
     onClick: () -> Unit,
     onSyncClick: (() -> Unit)? = null
 ) {
-    val dateStr = SimpleDateFormat("dd/MM/yyyy HH:mm", Locale("id", "ID"))
-        .format(Date(transaction.timestamp))
+    val dayName = getKpDayName(transaction.timestamp)
+    val dateStr = "$dayName, ${SimpleDateFormat("dd/MM/yyyy HH:mm", Locale("id", "ID")).format(Date(transaction.timestamp))}"
 
     Card(
         shape = RoundedCornerShape(12.dp),
@@ -1202,7 +1203,7 @@ private fun TransactionRowCard(
                 Column(modifier = Modifier.weight(1f)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text(
-                            text = "#${transaction.invoiceNumber}",
+                            text = formatOrderLabel(transaction.invoiceNumber),
                             fontWeight = FontWeight.Bold,
                             fontSize = 13.sp
                         )

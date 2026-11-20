@@ -2776,7 +2776,7 @@
         // Update active date label clearly for Today (shows exact date + reset-to-zero indicator)
         const lblActiveRange = document.getElementById('lbl-active-range');
         if (lblActiveRange && activePeriod === 'today') {
-          lblActiveRange.textContent = `Hari Ini (${formatDateOnly(new Date())}) • Reset Harian Rp 0`;
+          lblActiveRange.textContent = `Hari Ini (${formatKpDateShort(formatDateOnly(new Date()))}) • Reset Harian Rp 0`;
         }
 
         // Breadcrumb
@@ -2988,7 +2988,8 @@
           titleEl.innerHTML = `<span>🧾</span><span>Catatan Transaksi & Pengeluaran (${escHtml(periodText)})</span>`;
         }
         if (dateBadge) {
-          dateBadge.textContent = activePeriod === 'today' ? todayStr : (selectedCustomDate || periodText);
+          const rawBadgeDate = activePeriod === 'today' ? todayStr : selectedCustomDate;
+          dateBadge.textContent = rawBadgeDate ? formatKpDateShort(rawBadgeDate) : periodText;
         }
 
         const filteredState = getFilteredData();
@@ -3009,7 +3010,8 @@
           if (dailyNotaPayFilter !== 'ALL' && t.paymentMethod !== dailyNotaPayFilter) return false;
           if (dailyNotaSearchKeyword) {
             const nestedItems = Array.isArray(t.items) ? t.items.map(it => `${it.productName || it.name || ''} ${it.notes || ''}`).join(' ') : '';
-            const hay = `${t.invoiceNumber || ''} ${t.cashierName || ''} ${t.customerName || ''} ${t.itemsSummary || ''} ${nestedItems}`.toLowerCase();
+            const ordLbl = formatOrderLabel(t.invoiceNumber || t.id || '');
+            const hay = `${t.invoiceNumber || ''} ${ordLbl} ${t.cashierName || ''} ${t.customerName || ''} ${t.itemsSummary || ''} ${nestedItems}`.toLowerCase();
             if (!hay.includes(dailyNotaSearchKeyword)) return false;
           }
           return true;
@@ -3080,10 +3082,12 @@
 
         container.innerHTML = filtered.map(t => {
           const inv = String(t.invoiceNumber || t.id);
+          const orderLabel = formatOrderLabel(inv);
           const safeId = String(t.id || inv).replace(/'/g, "\\'");
           const dObj = getKpTrxDateObj(t);
           const hm = `${String(dObj.getHours()).padStart(2, '0')}:${String(dObj.getMinutes()).padStart(2, '0')}`;
-          const dOnly = t.date || formatDateOnly(t.timestamp) || '';
+          const dOnly = t.date || formatDateOnly(t.timestamp) || formatDateOnly(dObj) || '';
+          const dayDateLbl = formatKpDateShort(dOnly) || `${getKpDayName(dObj) ? getKpDayName(dObj) + ', ' : ''}${dOnly || '-'}`;
           const orderTypeLbl = t.orderType === 'TAKE_AWAY' ? 'Bungkus' : 'Makan di Tempat';
           const tableLbl = t.tableNumber ? ` • Meja ${t.tableNumber}` : '';
 
@@ -3114,8 +3118,8 @@
             <div class="p-4 hover:bg-slate-800/35 transition flex flex-col md:flex-row md:items-center justify-between gap-3">
               <div class="min-w-0 flex-1">
                 <div class="flex items-center gap-2 flex-wrap">
-                  <span class="font-mono font-extrabold text-sm text-orange-400">#${escHtml(inv)}</span>
-                  <span class="text-[11px] font-mono text-slate-400 bg-slate-950 border border-slate-800 px-2 py-0.5 rounded-md">🕒 ${hm} • ${escHtml(dOnly || '-')}</span>
+                  <span class="font-mono font-extrabold text-sm text-orange-400">${escHtml(orderLabel)}</span>
+                  <span class="text-[11px] font-mono text-slate-300 bg-slate-950 border border-slate-800 px-2 py-0.5 rounded-md">🕒 ${escHtml(dayDateLbl)} • ${hm}</span>
                   <span class="text-[10px] font-bold px-2 py-0.5 rounded-md border ${pmClass}">${pmIcon} ${escHtml(t.paymentMethod || 'CASH')}</span>
                   <span class="text-[11px] text-slate-300">👤 ${escHtml(t.cashierName || 'Kasir')}</span>
                   <span class="text-[11px] text-slate-400">• ${escHtml(t.customerName || 'Umum')} (${escHtml(orderTypeLbl)}${escHtml(tableLbl)})</span>
@@ -3134,7 +3138,7 @@
                   <button type="button" onclick="window.viewTrxReceipt('${safeId}')" class="px-2.5 py-1.5 text-[11px] font-bold rounded-lg bg-sky-500/15 hover:bg-sky-500/25 text-sky-300 border border-sky-500/30 transition cursor-pointer whitespace-nowrap">
                     🧾 Struk
                   </button>
-                  <button type="button" onclick="window.deleteKpSingleTrx('${safeId}', '${escHtml(dOnly)}')" title="Hapus Nota #${escHtml(inv)}" class="px-2.5 py-1.5 text-[11px] font-bold rounded-lg bg-rose-500/10 hover:bg-rose-500/25 text-rose-400 border border-rose-500/30 transition cursor-pointer">
+                  <button type="button" onclick="window.deleteKpSingleTrx('${safeId}', '${escHtml(dOnly)}')" title="Hapus ${escHtml(orderLabel)}" class="px-2.5 py-1.5 text-[11px] font-bold rounded-lg bg-rose-500/10 hover:bg-rose-500/25 text-rose-400 border border-rose-500/30 transition cursor-pointer">
                     🗑️
                   </button>
                 </div>
@@ -3159,7 +3163,8 @@
         const lines = list.slice(0, 30).map(t => {
           const d = getKpTrxDateObj(t);
           const hm = `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
-          return `- #${t.invoiceNumber || t.id} (${hm} • ${t.paymentMethod}): ${formatRupiah(t.totalAmount)} | Laba ${formatRupiah(t.profitAmount)} [${t.itemsSummary || '-'}]`;
+          const dayStr = getKpDayName(d);
+          return `- ${formatOrderLabel(t.invoiceNumber || t.id)} (${dayStr ? dayStr + ', ' : ''}${hm} • ${t.paymentMethod}): ${formatRupiah(t.totalAmount)} | Laba ${formatRupiah(t.profitAmount)} [${t.itemsSummary || '-'}]`;
         }).join('\n');
         const expLines = exps.slice(0, 20).map(e => `- ${e.title || 'Pengeluaran'} [${e.category || 'Operasional'}]: -${formatRupiah(e.amount)}`).join('\n');
         const msg = `🧾 Catatan Transaksi & Pengeluaran (${document.getElementById('daily-per-nota-date-badge')?.textContent || 'Hari Ini'})\nTotal: ${list.length} nota\nPendapatan: ${formatRupiah(rev)}\nLaba Kotor: ${formatRupiah(prof)}\nPengeluaran (${exps.length}): -${formatRupiah(totExp)}\nLaba Bersih: ${formatRupiah(netProf)}\n\n${lines || 'Belum ada transaksi.'}${expLines ? '\n\n💸 Laporan Pengeluaran:\n' + expLines : ''}`;
@@ -3231,13 +3236,14 @@
             const safeId = String(t.id || t.invoiceNumber).replace(/'/g, "\\'");
             const dOnly = t.date || formatDateOnly(t.timestamp) || '';
 
+            const dayStr = getKpDayName(getKpTrxDateObj(t));
             return `
               <tr class="hover:bg-slate-850/50 transition">
                 <td class="py-3 px-3.5 font-bold text-orange-400 whitespace-nowrap">
-                  #${escHtml(t.invoiceNumber)}
+                  ${escHtml(formatOrderLabel(t.invoiceNumber))}
                 </td>
                 <td class="py-3 px-3.5 text-slate-400 whitespace-nowrap text-xs">
-                  ${formatDateTime(t.timestamp || t.date)}
+                  ${dayStr ? escHtml(dayStr) + ', ' : ''}${formatDateTime(t.timestamp || t.date)}
                 </td>
                 <td class="py-3 px-3.5 font-sans font-semibold text-white whitespace-nowrap">
                   ${escHtml(t.cashierName)}
@@ -3375,8 +3381,8 @@
                       </tr>
                     ` : list.map(t => `
                       <tr class="hover:bg-slate-850/40 transition">
-                        <td class="py-2 px-3.5 font-bold text-white whitespace-nowrap">${t.invoiceNumber}</td>
-                        <td class="py-2 px-3.5 text-slate-400 whitespace-nowrap">${formatDateTime(t.timestamp || t.date)}</td>
+                        <td class="py-2 px-3.5 font-bold text-white whitespace-nowrap">${escHtml(formatOrderLabel(t.invoiceNumber))}</td>
+                        <td class="py-2 px-3.5 text-slate-400 whitespace-nowrap">${getKpDayName(getKpTrxDateObj(t)) ? escHtml(getKpDayName(getKpTrxDateObj(t))) + ', ' : ''}${formatDateTime(t.timestamp || t.date)}</td>
                         <td class="py-2 px-3.5 text-slate-300 font-sans">${t.cashierName}</td>
                         <td class="py-2 px-3.5 text-slate-400 font-sans">${t.customerName}</td>
                         <td class="py-2 px-3.5 text-slate-300 font-sans truncate max-w-[200px]" title="${t.itemsSummary}">${t.itemsSummary}</td>
@@ -4370,7 +4376,8 @@ _Diperbarui: ${new Date().toLocaleString('id-ID')}_`;
       if (tabBtnKpReport) tabBtnKpReport.addEventListener('click', () => switchTab('kp-report'));
 
       // --- 12B. KASIR PINTAR STYLE REPORT MODULE (MENU + HARIAN/BULANAN/TAHUNAN) ---
-      const KP_MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun', 'Jul', 'Agt', 'Sep', 'Okt', 'Nov', 'Des'];
+      var KP_DAYS = ['Minggu', 'Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu'];
+      var KP_MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun', 'Jul', 'Agt', 'Sep', 'Okt', 'Nov', 'Des'];
       let kpState = {
         screen: 'MENU', // 'MENU' | 'DETAIL' | 'EXPENSE'
         menuOption: 'ALL', // 'TODAY' | 'THIS_MONTH' | 'THIS_YEAR' | 'ALL'
@@ -4379,6 +4386,30 @@ _Diperbarui: ${new Date().toLocaleString('id-ID')}_`;
         metric: 'COUNT', // 'COUNT' | 'REVENUE' | 'PROFIT' | 'EXPENSE'
         selectedPeriodKey: null
       };
+
+      function formatOrderLabel(inv) {
+        const raw = String(inv || '-').trim();
+        if (!raw || raw === '-') return 'Order';
+        const stripped = raw.replace(/^#/, '');
+        if (/^TRX(?=[-_]|$)/i.test(stripped)) return stripped.replace(/^TRX/i, 'Order');
+        if (/^Order\b/i.test(stripped)) return stripped;
+        return 'Order ' + stripped;
+      }
+
+      function getKpDayName(val) {
+        let dObj = null;
+        if (val instanceof Date) dObj = val;
+        else if (typeof val === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(val.trim())) {
+          const p = val.trim().split('-').map(Number);
+          dObj = new Date(p[0], p[1] - 1, p[2], 12, 0, 0);
+        } else if (val && typeof val === 'object') {
+          dObj = getKpTrxDateObj(val);
+        } else if (val) {
+          dObj = new Date(val);
+        }
+        if (!dObj || isNaN(dObj.getTime())) return '';
+        return KP_DAYS[dObj.getDay()] || '';
+      }
 
       function getKpTrxDateObj(t) {
         const ms = parseMillisSafe(t && t.timestampMillis);
@@ -4401,7 +4432,8 @@ _Diperbarui: ${new Date().toLocaleString('id-ID')}_`;
       function formatKpDateShort(dateStr) {
         if (!dateStr || !/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) return dateStr || '';
         const [y, m, d] = dateStr.split('-').map(Number);
-        return `${d} ${KP_MONTHS[m - 1] || ''} ${y}`;
+        const dayName = KP_DAYS[new Date(y, m - 1, d, 12, 0, 0).getDay()] || '';
+        return `${dayName ? dayName + ', ' : ''}${d} ${KP_MONTHS[m - 1] || ''} ${y}`;
       }
 
       function filterKpItemsByScope(items, scope, cashierKey) {
@@ -4527,8 +4559,8 @@ _Diperbarui: ${new Date().toLocaleString('id-ID')}_`;
           day,
           startTime: period === 'DAILY' ? new Date(y, m, day).getTime() : (period === 'MONTHLY' ? new Date(y, m, 1).getTime() : new Date(y, 0, 1).getTime()),
           primaryLabel: period === 'DAILY' ? String(day) : (period === 'MONTHLY' ? KP_MONTHS[m] : String(y)),
-          secondaryLabel: period === 'DAILY' ? `${KP_MONTHS[m]}<br>${y}` : (period === 'MONTHLY' ? String(y) : 'Tahun'),
-          fullTitle: period === 'DAILY' ? `${day} ${KP_MONTHS[m]} ${y}` : (period === 'MONTHLY' ? `${KP_MONTHS[m]} ${y}` : `Tahun ${y}`)
+          secondaryLabel: period === 'DAILY' ? `${KP_DAYS[d.getDay()].slice(0, 3)}, ${KP_MONTHS[m]}<br>${y}` : (period === 'MONTHLY' ? String(y) : 'Tahun'),
+          fullTitle: period === 'DAILY' ? `${KP_DAYS[d.getDay()]}, ${day} ${KP_MONTHS[m]} ${y}` : (period === 'MONTHLY' ? `${KP_MONTHS[m]} ${y}` : `Tahun ${y}`)
         };
       }
 
@@ -5002,12 +5034,14 @@ _Diperbarui: ${new Date().toLocaleString('id-ID')}_`;
           const sortedNotas = sortedAllNotas.filter(t => {
             if (!kpTodayNotaSearch) return true;
             const invStr = String(t.invoiceNumber || t.id || '').toLowerCase();
+            const ordStr = formatOrderLabel(t.invoiceNumber || t.id || '').toLowerCase();
             const custStr = String(t.customerName || '').toLowerCase();
             const cashStr = String(t.cashierName || '').toLowerCase();
             const sumStr = String(t.itemsSummary || '').toLowerCase();
             const itemStr = normalizeKpItems(t.items).map(it => `${it.productName || it.name || ''} ${it.notes || ''}`).join(' ').toLowerCase();
-            return invStr.includes(kpTodayNotaSearch) || custStr.includes(kpTodayNotaSearch) ||
-              cashStr.includes(kpTodayNotaSearch) || sumStr.includes(kpTodayNotaSearch) || itemStr.includes(kpTodayNotaSearch);
+            return invStr.includes(kpTodayNotaSearch) || ordStr.includes(kpTodayNotaSearch) ||
+              custStr.includes(kpTodayNotaSearch) || cashStr.includes(kpTodayNotaSearch) ||
+              sumStr.includes(kpTodayNotaSearch) || itemStr.includes(kpTodayNotaSearch);
           });
           const sortedExps = sortedAllExps.filter(e => {
             if (!kpTodayNotaSearch) return true;
@@ -5070,7 +5104,7 @@ _Diperbarui: ${new Date().toLocaleString('id-ID')}_`;
           } else {
             const headerBar = `
               <div class="px-4 sm:px-5 py-2 bg-slate-50 flex items-center justify-between text-[11px] font-bold text-[#00796B]">
-                <span>${isTargetToday ? 'Catatan Transaksi per Nota Hari Ini' : `Catatan Transaksi per Nota (${targetFormatted})`}</span>
+                <span>${isTargetToday ? `Catatan Transaksi per Nota Hari Ini • ${targetFormatted}` : `Catatan Transaksi per Nota (${targetFormatted})`}</span>
                 <span>${sortedNotas.length} Nota • ${totalOrderedItems} Item Pesanan</span>
               </div>
             `;
@@ -5078,7 +5112,9 @@ _Diperbarui: ${new Date().toLocaleString('id-ID')}_`;
               const d = getKpTrxDateObj(t);
               const hm = `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
               const inv = t.invoiceNumber || t.id;
-              const dOnly = t.date || formatDateOnly(t.timestamp);
+              const orderLabel = formatOrderLabel(inv);
+              const dOnly = t.date || formatDateOnly(t.timestamp) || formatDateOnly(d);
+              const dayDateLbl = formatKpDateShort(dOnly) || `${getKpDayName(d) ? getKpDayName(d) + ', ' : ''}${dOnly || ''}`;
               const pm = t.paymentMethod || 'TUNAI';
               const cust = t.customerName || 'Pelanggan Umum';
               const cashier = t.cashierName || 'Kasir';
@@ -5114,8 +5150,8 @@ _Diperbarui: ${new Date().toLocaleString('id-ID')}_`;
                 <div onclick="window.viewTransactionReceipt('${t.id}')" class="p-4 sm:px-5 hover:bg-teal-50/30 transition cursor-pointer flex items-start justify-between gap-3">
                   <div class="flex-1 min-w-0">
                     <div class="flex items-center gap-1.5 flex-wrap">
-                      <span class="text-sm font-extrabold text-slate-900 font-mono">#${escHtml(inv)}</span>
-                      <span class="px-2 py-0.5 rounded-full bg-teal-50 text-[#00796B] border border-teal-200 text-[10px] font-bold">${hm} • ${escHtml(pm)}</span>
+                      <span class="text-sm font-extrabold text-slate-900 font-mono">${escHtml(orderLabel)}</span>
+                      <span class="px-2 py-0.5 rounded-full bg-teal-50 text-[#00796B] border border-teal-200 text-[10px] font-bold">${escHtml(dayDateLbl)} • ${hm} • ${escHtml(pm)}</span>
                       <span class="text-[11px] text-slate-600 font-medium">👤 ${escHtml(cust)} (${escHtml(orderTypeLbl)}${escHtml(tableLbl)})</span>
                       <span class="text-[11px] text-slate-400">• Kasir: ${escHtml(cashier)}</span>
                     </div>
@@ -5134,12 +5170,12 @@ _Diperbarui: ${new Date().toLocaleString('id-ID')}_`;
                   </div>
 
                   <div class="flex flex-col items-center gap-1 shrink-0 pt-0.5" onclick="event.stopPropagation()">
-                    <button type="button" onclick="window.deleteKpSingleTrx('${t.id}', '${dOnly || ''}')" title="Hapus Nota #${escHtml(inv)}" class="w-9 h-9 rounded-lg hover:bg-rose-50 text-rose-500 flex items-center justify-center transition cursor-pointer">
+                    <button type="button" onclick="window.deleteKpSingleTrx('${t.id}', '${dOnly || ''}')" title="Hapus ${escHtml(orderLabel)}" class="w-9 h-9 rounded-lg hover:bg-rose-50 text-rose-500 flex items-center justify-center transition cursor-pointer">
                       <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/>
                       </svg>
                     </button>
-                    <button type="button" onclick="window.viewTransactionReceipt('${t.id}')" title="Lihat Nota #${escHtml(inv)}" class="w-9 h-9 rounded-lg hover:bg-teal-50 text-[#00796B] flex items-center justify-center transition cursor-pointer">
+                    <button type="button" onclick="window.viewTransactionReceipt('${t.id}')" title="Lihat ${escHtml(orderLabel)}" class="w-9 h-9 rounded-lg hover:bg-teal-50 text-[#00796B] flex items-center justify-center transition cursor-pointer">
                       <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" d="M14 5l7 7m0 0l-7 7m7-7H3"/>
                       </svg>
@@ -5383,11 +5419,12 @@ _Diperbarui: ${new Date().toLocaleString('id-ID')}_`;
           const lines = sortedNotas.slice(0, 25).map(t => {
             const d = getKpTrxDateObj(t);
             const hm = `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+            const dayStr = getKpDayName(d);
             const itemsArr = normalizeKpItems(t.items);
             const itemsText = itemsArr.length > 0
               ? itemsArr.map(it => `${it.productName || it.name || 'Item'} x${it.quantity || it.qty || 1}`).join(', ')
               : (t.itemsSummary || '-');
-            return `- #${t.invoiceNumber || t.id} (${hm} • ${t.paymentMethod || 'TUNAI'}): Pendapatan ${formatRupiah(t.totalAmount)} | Keuntungan ${formatRupiah(t.profitAmount)} [${itemsText}]`;
+            return `- ${formatOrderLabel(t.invoiceNumber || t.id)} (${dayStr ? dayStr + ', ' : ''}${hm} • ${t.paymentMethod || 'TUNAI'}): Pendapatan ${formatRupiah(t.totalAmount)} | Keuntungan ${formatRupiah(t.profitAmount)} [${itemsText}]`;
           }).join('\n');
           const expLines = scopedExps.slice(0, 20).map(e => `- ${e.title || 'Pengeluaran'} [${e.category || 'Operasional'}]: -${formatRupiah(e.amount)}`).join('\n');
           msg = `📊 Laporan Transaksi Tanggal ${targetFormatted} (Per Nota)\nToko: ${(storeProfile && storeProfile.storeName) || 'Kasir Pintar'}\nTotal: ${sortedNotas.length} nota\nPendapatan: ${formatRupiah(totalRev)}\nLaba Kotor: ${formatRupiah(totalProf)}\nPengeluaran (${scopedExps.length}): -${formatRupiah(totalExp)}\nLaba Bersih: ${formatRupiah(netProf)}${lines ? '\n\n' + lines : ''}${expLines ? '\n\n💸 Laporan Pengeluaran:\n' + expLines : ''}`;
@@ -5435,13 +5472,13 @@ _Diperbarui: ${new Date().toLocaleString('id-ID')}_`;
       };
 
       window.deleteKpSingleTrx = async function(trxId, dateStr) {
-        if (!confirm(`Hapus transaksi #${trxId} dari database?`)) return;
+        if (!confirm(`Hapus transaksi ${formatOrderLabel(trxId)} dari database?`)) return;
         try {
           await Promise.all([
             fetch(`${currentDbUrl}/transactions/${encodeURIComponent(trxId)}.json`, { method: 'DELETE' }),
             dateStr ? fetch(`${currentDbUrl}/reports/daily_transactions/${dateStr}/${encodeURIComponent(trxId)}.json`, { method: 'DELETE' }) : Promise.resolve()
           ]);
-          showToast(`Transaksi #${trxId} berhasil dihapus.`, 'success');
+          showToast(`Transaksi ${formatOrderLabel(trxId)} berhasil dihapus.`, 'success');
           await loadAllData();
           if (kpState.selectedPeriodKey) window.openKpPeriodModal(kpState.selectedPeriodKey);
         } catch (err) {
@@ -5464,10 +5501,10 @@ _Diperbarui: ${new Date().toLocaleString('id-ID')}_`;
           <div class="p-4 flex items-center justify-between gap-3 hover:bg-slate-50">
             <div class="min-w-0 flex-1">
               <div class="flex items-center gap-2">
-                <span class="font-bold text-xs text-slate-900 font-mono">#${t.invoiceNumber || t.id}</span>
+                <span class="font-bold text-xs text-slate-900 font-mono">${escHtml(formatOrderLabel(t.invoiceNumber || t.id))}</span>
                 <span class="text-[10px] px-2 py-0.5 rounded-full bg-teal-50 text-[#00796B] font-bold">${t.paymentMethod}</span>
               </div>
-              <div class="text-[11px] text-slate-500 mt-0.5">${formatDateTime(t.timestamp || t.date)} • ${t.cashierName || 'Kasir'}</div>
+              <div class="text-[11px] text-slate-500 mt-0.5">${getKpDayName(getKpTrxDateObj(t)) ? escHtml(getKpDayName(getKpTrxDateObj(t))) + ', ' : ''}${formatDateTime(t.timestamp || t.date)} • ${t.cashierName || 'Kasir'}</div>
               <div class="text-xs text-slate-700 truncate mt-1">${t.itemsSummary || 'Pesanan'}</div>
               <div class="text-xs font-bold text-[#00796B] mt-1 font-mono">Omset: ${formatRupiah(t.totalAmount)} | Laba: ${formatRupiah(t.profitAmount)}</div>
             </div>

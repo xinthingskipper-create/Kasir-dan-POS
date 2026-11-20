@@ -31,6 +31,8 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.ArrowDropDown
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
@@ -40,12 +42,15 @@ import androidx.compose.material.icons.filled.NotificationsOff
 import androidx.compose.material.icons.filled.Remove
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.SwapVert
+import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.FloatingActionButton
@@ -55,6 +60,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -76,6 +82,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import com.example.bluetooth.BluetoothPrinterManager
 import com.example.data.model.Product
 import com.example.ui.PosViewModel
@@ -91,6 +98,9 @@ fun InventoryScreen(viewModel: PosViewModel) {
     val context = LocalContext.current
     val allProducts by viewModel.allProducts.collectAsState()
     val categories by viewModel.categories.collectAsState()
+    val configuredUnits by viewModel.configuredUnits.collectAsState()
+    val foodDefaultUnit by viewModel.foodDefaultUnit.collectAsState()
+    val drinkDefaultUnit by viewModel.drinkDefaultUnit.collectAsState()
     val isBgServiceRunning by viewModel.isBackgroundServiceRunning.collectAsState()
     val isLowStockNotifEnabled by viewModel.isLowStockNotifEnabled.collectAsState()
 
@@ -336,6 +346,21 @@ fun InventoryScreen(viewModel: PosViewModel) {
                         )
                     )
                 }
+                item {
+                    FilterChip(
+                        selected = false,
+                        onClick = { viewModel.selectTab(com.example.ui.MainTab.SETTINGS) },
+                        leadingIcon = {
+                            Icon(
+                                imageVector = Icons.Default.Tune,
+                                contentDescription = "Atur Kategori & Satuan",
+                                modifier = Modifier.size(16.dp)
+                            )
+                        },
+                        label = { Text("Atur Kategori & Satuan") },
+                        modifier = Modifier.testTag("btn_inventory_open_category_settings")
+                    )
+                }
             }
 
             // Product List
@@ -388,6 +413,16 @@ fun InventoryScreen(viewModel: PosViewModel) {
         ProductFormDialog(
             title = "Tambah Barang Baru",
             initialProduct = null,
+            availableCategories = categories,
+            availableUnits = configuredUnits,
+            defaultUnitForCategory = { cat ->
+                val norm = cat.trim().lowercase(java.util.Locale.ROOT)
+                when {
+                    norm.contains("makan") || norm.contains("food") -> foodDefaultUnit
+                    norm.contains("minum") || norm.contains("drink") || norm.contains("kopi") || norm.contains("teh") -> drinkDefaultUnit
+                    else -> viewModel.defaultUnitForCategory(cat)
+                }
+            },
             onDismiss = { showAddProductDialog = false },
             onSave = { name, cat, barcode, buyPrice, sellPrice, stock, minStock, unit ->
                 viewModel.addProduct(name, cat, barcode, buyPrice, sellPrice, stock, minStock, unit)
@@ -401,6 +436,9 @@ fun InventoryScreen(viewModel: PosViewModel) {
         ProductFormDialog(
             title = "Edit Data Barang",
             initialProduct = product,
+            availableCategories = categories,
+            availableUnits = configuredUnits,
+            defaultUnitForCategory = { cat -> viewModel.defaultUnitForCategory(cat) },
             onDismiss = { editingProduct = null },
             onSave = { name, cat, barcode, buyPrice, sellPrice, stock, minStock, unit ->
                 viewModel.updateProduct(
@@ -598,24 +636,61 @@ private fun InventoryProductCard(
 fun ProductFormDialog(
     title: String,
     initialProduct: Product?,
+    availableCategories: List<String> = PosViewModel.DEFAULT_CATEGORIES,
+    availableUnits: List<String> = PosViewModel.DEFAULT_UNITS,
+    defaultUnitForCategory: (String) -> String = { cat ->
+        if (cat.contains("minum", ignoreCase = true)) PosViewModel.DEFAULT_DRINK_UNIT else PosViewModel.DEFAULT_FOOD_UNIT
+    },
     onDismiss: () -> Unit,
     onSave: (String, String, String, Double, Double, Int, Int, String) -> Unit
 ) {
+    val defaultInitialCategory = initialProduct?.category ?: availableCategories.firstOrNull() ?: "Makanan"
     var name by remember { mutableStateOf(initialProduct?.name ?: "") }
-    var category by remember { mutableStateOf(initialProduct?.category ?: "Makanan") }
+    var category by remember { mutableStateOf(defaultInitialCategory) }
     var barcode by remember { mutableStateOf(initialProduct?.barcode ?: "") }
     var buyPriceStr by remember { mutableStateOf(initialProduct?.buyPrice?.toInt()?.toString() ?: "") }
     var sellPriceStr by remember { mutableStateOf(initialProduct?.sellPrice?.toInt()?.toString() ?: "") }
     var stockStr by remember { mutableStateOf(initialProduct?.stock?.toString() ?: "10") }
     var minStockStr by remember { mutableStateOf(initialProduct?.minStockAlert?.toString() ?: "5") }
-    var unit by remember { mutableStateOf(initialProduct?.unit ?: "pcs") }
+    var unit by remember { mutableStateOf(initialProduct?.unit ?: defaultUnitForCategory(defaultInitialCategory)) }
 
-    Dialog(onDismissRequest = onDismiss) {
+    var categoryExpanded by remember { mutableStateOf(false) }
+    var unitExpanded by remember { mutableStateOf(false) }
+    var useCustomCategory by remember { mutableStateOf(false) }
+    var useCustomUnit by remember { mutableStateOf(false) }
+
+    val categoryOptions = remember(availableCategories, category) {
+        val list = availableCategories.toMutableList()
+        if (category.isNotBlank() && list.none { it.equals(category, ignoreCase = true) }) {
+            list.add(category)
+        }
+        list
+    }
+    val unitOptions = remember(availableUnits, unit) {
+        val list = availableUnits.toMutableList()
+        if (unit.isNotBlank() && list.none { it.equals(unit, ignoreCase = true) }) {
+            list.add(unit)
+        }
+        list
+    }
+
+    val dropdownFieldColors = OutlinedTextFieldDefaults.colors(
+        disabledTextColor = MaterialTheme.colorScheme.onSurface,
+        disabledBorderColor = MaterialTheme.colorScheme.outline,
+        disabledLabelColor = MaterialTheme.colorScheme.onSurfaceVariant,
+        disabledTrailingIconColor = MaterialTheme.colorScheme.onSurfaceVariant
+    )
+
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false)
+    ) {
         Surface(
             shape = RoundedCornerShape(16.dp),
             color = MaterialTheme.colorScheme.surface,
             modifier = Modifier
-                .fillMaxWidth()
+                .fillMaxWidth(0.92f)
+                .widthIn(max = 480.dp)
                 .padding(vertical = 12.dp)
         ) {
             Column(
@@ -639,20 +714,184 @@ fun ProductFormDialog(
                 Spacer(modifier = Modifier.height(8.dp))
 
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    // Dropdown Kategori
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .testTag("dropdown_product_category")
+                    ) {
+                        OutlinedTextField(
+                            value = category,
+                            onValueChange = {},
+                            readOnly = true,
+                            enabled = false,
+                            label = { Text("Kategori") },
+                            singleLine = true,
+                            trailingIcon = {
+                                Icon(
+                                    imageVector = Icons.Default.ArrowDropDown,
+                                    contentDescription = "Pilih Kategori"
+                                )
+                            },
+                            colors = dropdownFieldColors,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { categoryExpanded = true }
+                                .testTag("product_category_input"),
+                            shape = RoundedCornerShape(10.dp)
+                        )
+                        DropdownMenu(
+                            expanded = categoryExpanded,
+                            onDismissRequest = { categoryExpanded = false }
+                        ) {
+                            categoryOptions.forEach { catOption ->
+                                val selected = category.equals(catOption, ignoreCase = true)
+                                DropdownMenuItem(
+                                    text = {
+                                        Text(
+                                            text = catOption,
+                                            fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal
+                                        )
+                                    },
+                                    trailingIcon = if (selected) {
+                                        {
+                                            Icon(
+                                                imageVector = Icons.Default.Check,
+                                                contentDescription = null,
+                                                tint = MaterialTheme.colorScheme.primary,
+                                                modifier = Modifier.size(16.dp)
+                                            )
+                                        }
+                                    } else null,
+                                    onClick = {
+                                        category = catOption
+                                        useCustomCategory = false
+                                        categoryExpanded = false
+                                        if (initialProduct == null) {
+                                            unit = defaultUnitForCategory(catOption)
+                                        }
+                                    },
+                                    modifier = Modifier.testTag("dropdown_category_option_$catOption")
+                                )
+                            }
+                            HorizontalDivider()
+                            DropdownMenuItem(
+                                text = {
+                                    Text(
+                                        text = "+ Ketik Kategori Lain...",
+                                        fontWeight = FontWeight.SemiBold,
+                                        color = MaterialTheme.colorScheme.primary
+                                    )
+                                },
+                                onClick = {
+                                    useCustomCategory = true
+                                    categoryExpanded = false
+                                },
+                                modifier = Modifier.testTag("dropdown_category_custom")
+                            )
+                        }
+                    }
+
+                    // Dropdown Satuan (porsi/pcs)
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .testTag("dropdown_product_unit")
+                    ) {
+                        OutlinedTextField(
+                            value = unit,
+                            onValueChange = {},
+                            readOnly = true,
+                            enabled = false,
+                            label = { Text("Satuan") },
+                            singleLine = true,
+                            trailingIcon = {
+                                Icon(
+                                    imageVector = Icons.Default.ArrowDropDown,
+                                    contentDescription = "Pilih Satuan"
+                                )
+                            },
+                            colors = dropdownFieldColors,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { unitExpanded = true }
+                                .testTag("product_unit_input"),
+                            shape = RoundedCornerShape(10.dp)
+                        )
+                        DropdownMenu(
+                            expanded = unitExpanded,
+                            onDismissRequest = { unitExpanded = false }
+                        ) {
+                            unitOptions.forEach { unitOption ->
+                                val selected = unit.equals(unitOption, ignoreCase = true)
+                                DropdownMenuItem(
+                                    text = {
+                                        Text(
+                                            text = unitOption,
+                                            fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal
+                                        )
+                                    },
+                                    trailingIcon = if (selected) {
+                                        {
+                                            Icon(
+                                                imageVector = Icons.Default.Check,
+                                                contentDescription = null,
+                                                tint = MaterialTheme.colorScheme.primary,
+                                                modifier = Modifier.size(16.dp)
+                                            )
+                                        }
+                                    } else null,
+                                    onClick = {
+                                        unit = unitOption
+                                        useCustomUnit = false
+                                        unitExpanded = false
+                                    },
+                                    modifier = Modifier.testTag("dropdown_unit_option_$unitOption")
+                                )
+                            }
+                            HorizontalDivider()
+                            DropdownMenuItem(
+                                text = {
+                                    Text(
+                                        text = "+ Ketik Satuan Lain...",
+                                        fontWeight = FontWeight.SemiBold,
+                                        color = MaterialTheme.colorScheme.primary
+                                    )
+                                },
+                                onClick = {
+                                    useCustomUnit = true
+                                    unitExpanded = false
+                                },
+                                modifier = Modifier.testTag("dropdown_unit_custom")
+                            )
+                        }
+                    }
+                }
+
+                if (useCustomCategory) {
+                    Spacer(modifier = Modifier.height(8.dp))
                     OutlinedTextField(
                         value = category,
                         onValueChange = { category = it },
-                        label = { Text("Kategori") },
+                        label = { Text("Ketik Kategori Kustom") },
                         singleLine = true,
-                        modifier = Modifier.weight(1f).testTag("product_category_input"),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("product_custom_category_input"),
                         shape = RoundedCornerShape(10.dp)
                     )
+                }
+
+                if (useCustomUnit) {
+                    Spacer(modifier = Modifier.height(8.dp))
                     OutlinedTextField(
                         value = unit,
                         onValueChange = { unit = it },
-                        label = { Text("Satuan (pcs/porsi)") },
+                        label = { Text("Ketik Satuan Kustom") },
                         singleLine = true,
-                        modifier = Modifier.weight(1f),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("product_custom_unit_input"),
                         shape = RoundedCornerShape(10.dp)
                     )
                 }

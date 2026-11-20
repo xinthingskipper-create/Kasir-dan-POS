@@ -81,6 +81,7 @@ fun PaymentDialog(
     grandTotal: Double,
     initialOrderType: OrderType = OrderType.DINE_IN,
     initialTableNumber: String = "",
+    tableCount: Int = 5,
     onDismiss: () -> Unit,
     onConfirmPayment: (PaymentMethod, Double, String, OrderType, String, String) -> Unit
 ) {
@@ -137,9 +138,19 @@ fun PaymentDialog(
 
     val quickNominals = remember(grandTotal) {
         val exact = grandTotal.roundToInt().coerceAtLeast(0)
+        val roundedUpFiveK = if (exact > 0) (ceil(exact / 5000.0) * 5000).toInt() else 5000
         val roundedUpTenK = if (exact > 0) (ceil(exact / 10000.0) * 10000).toInt() else 10000
-        val candidates = linkedSetOf(exact, 10000, 20000, roundedUpTenK, 50000, 100000)
-        candidates.filter { it > 0 }.take(5)
+        val candidates = linkedSetOf(
+            exact,
+            roundedUpFiveK,
+            roundedUpTenK,
+            20000,
+            50000,
+            100000,
+            150000,
+            200000
+        )
+        candidates.filter { it >= exact && it > 0 }.sorted().take(5)
     }
 
     Dialog(
@@ -270,13 +281,13 @@ fun PaymentDialog(
                         }
                     }
 
-                    // 2. DISPLAY UTAMA NOMINAL BESAR (Rp 0 / Rp 20.000)
+                    // 2. DISPLAY UTAMA NOMINAL BESAR & KEMBALIAN
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .weight(0.30f)
+                            .weight(0.34f)
                             .background(MaterialTheme.colorScheme.surface)
-                            .padding(horizontal = 20.dp, vertical = 10.dp)
+                            .padding(horizontal = 20.dp, vertical = 6.dp)
                             .testTag("cash_amount_input")
                     ) {
                         // Pill kecil di kanan atas untuk ringkasan pelanggan / detail cepat
@@ -300,12 +311,14 @@ fun PaymentDialog(
                                 color = MaterialTheme.colorScheme.secondary,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,
-                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp)
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
                             )
                         }
 
                         Column(
-                            modifier = Modifier.align(Alignment.Center),
+                            modifier = Modifier
+                                .align(Alignment.Center)
+                                .padding(top = 14.dp),
                             horizontalAlignment = Alignment.CenterHorizontally
                         ) {
                             val displayText = if (selectedMethod == PaymentMethod.TUNAI) {
@@ -315,9 +328,9 @@ fun PaymentDialog(
                             }
                             val isMutedZero = selectedMethod == PaymentMethod.TUNAI && (cashInput.isEmpty() || amountPaid <= 0.0)
                             val dynamicFontSize = when {
-                                displayText.length >= 14 -> 32.sp
-                                displayText.length >= 11 -> 38.sp
-                                else -> 46.sp
+                                displayText.length >= 14 -> 28.sp
+                                displayText.length >= 11 -> 34.sp
+                                else -> 40.sp
                             }
 
                             Text(
@@ -336,50 +349,105 @@ fun PaymentDialog(
                                 modifier = Modifier.testTag("cash_amount_display")
                             )
 
-                            Spacer(modifier = Modifier.height(8.dp))
+                            Spacer(modifier = Modifier.height(6.dp))
 
                             if (selectedMethod == PaymentMethod.TUNAI) {
-                                if (cashInput.isNotEmpty() && amountPaid > 0.0) {
-                                    Text(
-                                        text = if (isEnough) {
-                                            "Kembalian: ${formatRpClean(change)}"
-                                        } else {
-                                            "Kurang: ${formatRpClean((grandTotal - amountPaid).coerceAtLeast(0.0))}"
-                                        },
-                                        fontSize = 14.sp,
-                                        fontWeight = FontWeight.SemiBold,
-                                        color = if (isEnough) PosSuccessGreen else PosErrorRed
-                                    )
-                                } else {
-                                    Text(
-                                        text = "Ketuk angka atau ikon uang pas",
-                                        fontSize = 12.sp,
-                                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.45f)
-                                    )
+                                val hasCashInput = cashInput.isNotEmpty() && amountPaid > 0.0
+                                val shortage = (grandTotal - amountPaid).coerceAtLeast(0.0)
+                                val changeBg = when {
+                                    hasCashInput && isEnough -> PosSuccessGreen.copy(alpha = 0.12f)
+                                    hasCashInput && !isEnough -> PosErrorRed.copy(alpha = 0.09f)
+                                    else -> MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.65f)
+                                }
+                                val changeBorder = when {
+                                    hasCashInput && isEnough -> PosSuccessGreen.copy(alpha = 0.45f)
+                                    hasCashInput && !isEnough -> PosErrorRed.copy(alpha = 0.35f)
+                                    else -> MaterialTheme.colorScheme.outline.copy(alpha = 0.35f)
+                                }
+
+                                Surface(
+                                    shape = RoundedCornerShape(12.dp),
+                                    color = changeBg,
+                                    border = BorderStroke(1.dp, changeBorder),
+                                    modifier = Modifier.testTag("payment_change_box")
+                                ) {
+                                    Column(
+                                        horizontalAlignment = Alignment.CenterHorizontally,
+                                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp)
+                                    ) {
+                                        val changeText = when {
+                                            hasCashInput && isEnough && change > 0.0 ->
+                                                "Kembalian : ${formatRpClean(change)}"
+                                            hasCashInput && isEnough ->
+                                                "Kembalian : Rp 0 (Uang Pas)"
+                                            else ->
+                                                "Kembalian : ${formatRpClean(0.0)}"
+                                        }
+                                        Text(
+                                            text = changeText,
+                                            fontSize = if (hasCashInput && isEnough) 15.sp else 13.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = when {
+                                                hasCashInput && isEnough -> PosSuccessGreen
+                                                else -> MaterialTheme.colorScheme.onSurface.copy(alpha = 0.8f)
+                                            },
+                                            modifier = Modifier.testTag("payment_change_display")
+                                        )
+
+                                        if (!isEnough && grandTotal > 0.0) {
+                                            Text(
+                                                text = if (hasCashInput) {
+                                                    "Kurang : ${formatRpClean(shortage)}"
+                                                } else {
+                                                    "Kurang ${formatRpClean(grandTotal)} • Ketuk nominal / uang pas"
+                                                },
+                                                fontSize = 11.sp,
+                                                fontWeight = if (hasCashInput) FontWeight.SemiBold else FontWeight.Normal,
+                                                color = if (hasCashInput) {
+                                                    PosErrorRed
+                                                } else {
+                                                    MaterialTheme.colorScheme.onSurface.copy(alpha = 0.55f)
+                                                },
+                                                modifier = Modifier.testTag("payment_shortage_display")
+                                            )
+                                        }
+                                    }
                                 }
                             } else {
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                                    modifier = Modifier
-                                        .background(
-                                            MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.7f),
-                                            RoundedCornerShape(20.dp)
-                                        )
-                                        .clickable { showDetailSheet = true }
-                                        .padding(horizontal = 12.dp, vertical = 5.dp)
+                                Column(
+                                    horizontalAlignment = Alignment.CenterHorizontally,
+                                    verticalArrangement = Arrangement.spacedBy(4.dp)
                                 ) {
-                                    Icon(
-                                        imageVector = paymentMethodIcon(selectedMethod),
-                                        contentDescription = null,
-                                        tint = MaterialTheme.colorScheme.onSecondaryContainer,
-                                        modifier = Modifier.size(16.dp)
-                                    )
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                        modifier = Modifier
+                                            .background(
+                                                MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.7f),
+                                                RoundedCornerShape(20.dp)
+                                            )
+                                            .clickable { showDetailSheet = true }
+                                            .padding(horizontal = 12.dp, vertical = 5.dp)
+                                    ) {
+                                        Icon(
+                                            imageVector = paymentMethodIcon(selectedMethod),
+                                            contentDescription = null,
+                                            tint = MaterialTheme.colorScheme.onSecondaryContainer,
+                                            modifier = Modifier.size(16.dp)
+                                        )
+                                        Text(
+                                            text = "${selectedMethod.label} • Nominal Pas",
+                                            fontSize = 12.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = MaterialTheme.colorScheme.onSecondaryContainer
+                                        )
+                                    }
                                     Text(
-                                        text = "${selectedMethod.label} • Nominal Pas",
-                                        fontSize = 12.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        color = MaterialTheme.colorScheme.onSecondaryContainer
+                                        text = "Kembalian : Rp 0",
+                                        fontSize = 13.sp,
+                                        fontWeight = FontWeight.SemiBold,
+                                        color = PosSuccessGreen,
+                                        modifier = Modifier.testTag("payment_change_display")
                                     )
                                 }
                             }
@@ -548,7 +616,7 @@ fun PaymentDialog(
                     Column(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .weight(0.54f)
+                            .weight(0.50f)
                             .background(MaterialTheme.colorScheme.surface)
                             .padding(horizontal = 8.dp, vertical = 6.dp),
                         verticalArrangement = Arrangement.SpaceEvenly
@@ -630,9 +698,11 @@ fun PaymentDialog(
     if (showDetailSheet) {
         PaymentOptionsDetailDialog(
             grandTotal = grandTotal,
+            changeAmount = change,
             selectedMethod = selectedMethod,
             selectedOrderType = selectedOrderType,
             tableNumber = tableNumber,
+            tableCount = tableCount,
             customerName = customerName,
             notes = notes,
             onSelectMethod = { method ->
@@ -712,9 +782,11 @@ private fun paymentMethodIcon(method: PaymentMethod): ImageVector = when (method
 @Composable
 private fun PaymentOptionsDetailDialog(
     grandTotal: Double,
+    changeAmount: Double,
     selectedMethod: PaymentMethod,
     selectedOrderType: OrderType,
     tableNumber: String,
+    tableCount: Int = 5,
     customerName: String,
     notes: String,
     onSelectMethod: (PaymentMethod) -> Unit,
@@ -724,34 +796,56 @@ private fun PaymentOptionsDetailDialog(
     onNotesChange: (String) -> Unit,
     onDismiss: () -> Unit
 ) {
-    Dialog(onDismissRequest = onDismiss) {
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false)
+    ) {
         Surface(
             shape = RoundedCornerShape(18.dp),
             color = MaterialTheme.colorScheme.surface,
             modifier = Modifier
-                .fillMaxWidth()
+                .fillMaxWidth(0.92f)
                 .widthIn(max = 460.dp)
+                .padding(vertical = 16.dp)
         ) {
             Column(
-                modifier = Modifier
-                    .padding(20.dp)
-                    .verticalScroll(rememberScrollState()),
-                verticalArrangement = Arrangement.spacedBy(12.dp)
+                modifier = Modifier.padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Text(
-                        text = "Detail Pembayaran & Layanan",
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold
-                    )
-                    IconButton(onClick = onDismiss) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = "Detail Pembayaran & Layanan",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Text(
+                            text = "Total: ${BluetoothPrinterManager.formatRupiah(grandTotal)} • Kembali: ${BluetoothPrinterManager.formatRupiah(changeAmount)}",
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = if (changeAmount > 0.0) PosSuccessGreen else MaterialTheme.colorScheme.secondary,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                    IconButton(
+                        onClick = onDismiss,
+                        modifier = Modifier.size(36.dp)
+                    ) {
                         Icon(imageVector = Icons.Default.Close, contentDescription = "Tutup")
                     }
                 }
+
+                Column(
+                    modifier = Modifier
+                        .weight(1f, fill = false)
+                        .verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
 
                 // Metode Pembayaran
                 Text(
@@ -805,30 +899,31 @@ private fun PaymentOptionsDetailDialog(
                         ),
                         shape = RoundedCornerShape(10.dp)
                     ) {
-                        Column(
+                        Row(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(12.dp),
-                            horizontalAlignment = Alignment.CenterHorizontally
+                                .padding(10.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(10.dp)
                         ) {
                             Icon(
                                 imageVector = Icons.Default.QrCode,
                                 contentDescription = "QRIS",
-                                modifier = Modifier.size(56.dp),
+                                modifier = Modifier.size(38.dp),
                                 tint = MaterialTheme.colorScheme.secondary
                             )
-                            Spacer(modifier = Modifier.height(4.dp))
-                            Text(
-                                text = "Scan QRIS • ${BluetoothPrinterManager.formatRupiah(grandTotal)}",
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 13.sp
-                            )
-                            Text(
-                                text = "Mendukung GoPay, OVO, Dana, ShopeePay & Mobile Banking",
-                                fontSize = 11.sp,
-                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
-                                textAlign = TextAlign.Center
-                            )
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = "Scan QRIS • ${BluetoothPrinterManager.formatRupiah(grandTotal)}",
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 12.sp
+                                )
+                                Text(
+                                    text = "Mendukung GoPay, OVO, Dana, ShopeePay & Mobile Banking",
+                                    fontSize = 11.sp,
+                                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+                                )
+                            }
                         }
                     }
                 }
@@ -922,6 +1017,42 @@ private fun PaymentOptionsDetailDialog(
                 }
 
                 if (selectedOrderType == OrderType.DINE_IN) {
+                    if (tableCount > 0) {
+                        Text(
+                            text = "Pilih Meja Cepat (1 - $tableCount):",
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.65f)
+                        )
+                        LazyRow(
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .testTag("dialog_table_chips_row")
+                        ) {
+                            items((1..tableCount).toList()) { num ->
+                                val label = "Meja $num"
+                                val isSelectedTable = tableNumber == label
+                                Surface(
+                                    shape = RoundedCornerShape(8.dp),
+                                    color = if (isSelectedTable) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
+                                    modifier = Modifier
+                                        .clickable {
+                                            onTableNumberChange(if (isSelectedTable) "" else label)
+                                        }
+                                        .testTag("dialog_table_chip_$num")
+                                ) {
+                                    Text(
+                                        text = label,
+                                        fontSize = 11.sp,
+                                        fontWeight = if (isSelectedTable) FontWeight.Bold else FontWeight.Medium,
+                                        color = if (isSelectedTable) Color.White else MaterialTheme.colorScheme.onSurface,
+                                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
+                                    )
+                                }
+                            }
+                        }
+                    }
                     OutlinedTextField(
                         value = tableNumber,
                         onValueChange = onTableNumberChange,
@@ -951,6 +1082,8 @@ private fun PaymentOptionsDetailDialog(
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(10.dp)
                 )
+
+                }
 
                 Button(
                     onClick = onDismiss,

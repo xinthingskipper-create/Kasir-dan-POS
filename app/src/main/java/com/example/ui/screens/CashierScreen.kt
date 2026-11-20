@@ -109,6 +109,7 @@ fun CashierScreen(viewModel: PosViewModel) {
     val cartSubtotal by viewModel.cartSubtotal.collectAsState()
     val discountAmount by viewModel.discountAmount.collectAsState()
     val isTaxEnabled by viewModel.isTaxEnabled.collectAsState()
+    val tableCount by viewModel.tableCount.collectAsState()
 
     var showPaymentDialog by remember { mutableStateOf(false) }
     var showDiscountDialog by remember { mutableStateOf(false) }
@@ -232,6 +233,7 @@ fun CashierScreen(viewModel: PosViewModel) {
                             onOrderTypeChange = { orderType = it },
                             tableNumber = tableNumber,
                             onTableNumberChange = { tableNumber = it },
+                            tableCount = tableCount,
                             onClearCart = { viewModel.clearCart() },
                             onShowTutupKasir = { showTutupKasirDialog = true },
                             onShowDiscount = { showDiscountDialog = true },
@@ -469,6 +471,7 @@ fun CashierScreen(viewModel: PosViewModel) {
                                 onOrderTypeChange = { orderType = it },
                                 tableNumber = tableNumber,
                                 onTableNumberChange = { tableNumber = it },
+                                tableCount = tableCount,
                                 onClearCart = { viewModel.clearCart() },
                                 onShowTutupKasir = { showTutupKasirDialog = true },
                                 onShowDiscount = { showDiscountDialog = true },
@@ -518,6 +521,7 @@ fun CashierScreen(viewModel: PosViewModel) {
             grandTotal = grandTotal,
             initialOrderType = orderType,
             initialTableNumber = tableNumber,
+            tableCount = tableCount,
             onDismiss = { showPaymentDialog = false },
             onConfirmPayment = { method, amountPaid, customerName, chosenOrderType, chosenTableNumber, notes ->
                 showPaymentDialog = false
@@ -661,6 +665,7 @@ private fun CashierOrderCartPane(
     onOrderTypeChange: (OrderType) -> Unit,
     tableNumber: String,
     onTableNumberChange: (String) -> Unit,
+    tableCount: Int = 5,
     onClearCart: () -> Unit,
     onShowTutupKasir: () -> Unit,
     onShowDiscount: () -> Unit,
@@ -838,23 +843,43 @@ private fun CashierOrderCartPane(
                     color = Color(0xFF64748B),
                     fontWeight = FontWeight.SemiBold
                 )
-                listOf("1", "2", "3", "4", "5").forEach { num ->
-                    val isSelectedTable = tableNumber == "Meja $num"
-                    Surface(
-                        shape = RoundedCornerShape(4.dp),
-                        color = if (isSelectedTable) MaterialTheme.colorScheme.primary else Color(0xFFF1F5F9),
-                        modifier = Modifier.clickable {
-                            onTableNumberChange(if (isSelectedTable) "" else "Meja $num")
-                        }
+                if (tableCount > 0) {
+                    LazyRow(
+                        modifier = Modifier
+                            .weight(1f)
+                            .testTag("cashier_table_chips_row"),
+                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Text(
-                            text = num,
-                            fontSize = 10.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = if (isSelectedTable) Color.White else Color(0xFF475569),
-                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                        )
+                        items((1..tableCount).toList()) { num ->
+                            val label = "Meja $num"
+                            val isSelectedTable = tableNumber == label
+                            Surface(
+                                shape = RoundedCornerShape(4.dp),
+                                color = if (isSelectedTable) MaterialTheme.colorScheme.primary else Color(0xFFF1F5F9),
+                                modifier = Modifier
+                                    .clickable {
+                                        onTableNumberChange(if (isSelectedTable) "" else label)
+                                    }
+                                    .testTag("cashier_table_chip_$num")
+                            ) {
+                                Text(
+                                    text = "$num",
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = if (isSelectedTable) Color.White else Color(0xFF475569),
+                                    modifier = Modifier.padding(horizontal = 7.dp, vertical = 3.dp)
+                                )
+                            }
+                        }
                     }
+                } else {
+                    Text(
+                        text = "Meja dinonaktifkan (0)",
+                        fontSize = 10.sp,
+                        color = Color(0xFF94A3B8),
+                        modifier = Modifier.weight(1f)
+                    )
                 }
                 if (tableNumber.isNotBlank()) {
                     Text(
