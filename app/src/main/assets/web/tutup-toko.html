@@ -1,0 +1,1460 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Laporan Tutup Toko & Kasir - Realtime Database Live</title>
+  
+  <!-- Tailwind CSS & Google Fonts -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+  
+  <!-- Chart.js for Trend Visualization -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+
+  <style>
+    body { font-family: 'Plus Jakarta Sans', sans-serif; }
+    .font-mono { font-family: 'JetBrains Mono', monospace; }
+    
+    @keyframes pulse-live {
+      0%, 100% { transform: scale(1); opacity: 1; }
+      50% { transform: scale(1.3); opacity: 0.6; }
+    }
+    .pulse-dot { animation: pulse-live 1.8s infinite ease-in-out; }
+
+    /* Custom Scrollbar */
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-track { background: #0f172a; }
+    ::-webkit-scrollbar-thumb { background: #334155; border-radius: 9999px; }
+    ::-webkit-scrollbar-thumb:hover { background: #475569; }
+
+    /* Thermal Receipt Printing Styles */
+    @media print {
+      .no-print { display: none !important; }
+      body { background: white !important; color: black !important; padding: 0 !important; margin: 0 !important; }
+      #modal-shift-receipt {
+        display: block !important;
+        position: static !important;
+        background: white !important;
+        padding: 0 !important;
+        margin: 0 !important;
+      }
+      .receipt-paper {
+        width: 100% !important;
+        max-width: 380px !important;
+        margin: 0 auto !important;
+        box-shadow: none !important;
+        border: none !important;
+        color: black !important;
+        background: white !important;
+        font-size: 11px !important;
+      }
+      .receipt-paper * {
+        color: black !important;
+        text-shadow: none !important;
+      }
+      .receipt-paper .border-dashed {
+        border-color: #333 !important;
+      }
+    }
+  </style>
+</head>
+<body class="bg-slate-950 text-slate-100 min-h-screen flex flex-col antialiased selection:bg-orange-500 selection:text-white">
+
+  <!-- TOP HEADER & REALTIME DATABASE STATUS -->
+  <header class="bg-slate-900/90 backdrop-blur-md border-b border-slate-800 sticky top-0 z-40 no-print">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 py-3.5 flex flex-wrap items-center justify-between gap-3">
+      
+      <!-- Brand & Title -->
+      <div class="flex items-center gap-3">
+        <div class="w-10 h-10 rounded-xl bg-gradient-to-tr from-orange-600 via-amber-600 to-amber-500 flex items-center justify-center text-white shadow-lg shadow-orange-500/20">
+          <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
+          </svg>
+        </div>
+        <div>
+          <div class="flex items-center gap-2">
+            <h1 class="text-base sm:text-lg font-extrabold text-white tracking-tight">Laporan Tutup Toko & Kasir</h1>
+            <span class="text-[10px] font-bold uppercase tracking-wider bg-orange-500/10 text-orange-400 border border-orange-500/30 px-2.5 py-0.5 rounded-full">
+              Realtime Database Only
+            </span>
+          </div>
+          <p id="header-store-info" class="text-xs text-slate-400">
+            Kasir POS • Pantau Rekap Shift & Keuangan Tanpa Firestore
+          </p>
+        </div>
+      </div>
+
+      <!-- Action Bar & Connection Status -->
+      <div class="flex items-center gap-2.5 flex-wrap">
+        
+        <!-- Live RTDB Status Indicator -->
+        <div class="flex items-center gap-2 bg-slate-800/90 border border-slate-700 px-3 py-1.5 rounded-xl text-xs">
+          <span id="conn-dot" class="w-2.5 h-2.5 rounded-full bg-emerald-500 pulse-dot"></span>
+          <span class="text-slate-300 font-medium">RTDB:</span>
+          <span id="conn-host-label" class="font-mono text-emerald-400 font-bold truncate max-w-[150px] sm:max-w-[200px]" title="Klik untuk ubah">
+            foodrock-report-default-rtdb
+          </span>
+        </div>
+
+        <!-- Auto Refresh Pill with Countdown -->
+        <div class="hidden sm:flex items-center gap-1.5 bg-slate-800/60 border border-slate-700/60 px-2.5 py-1.5 rounded-xl text-xs text-slate-400">
+          <svg class="w-3.5 h-3.5 text-slate-400 animate-spin" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
+          </svg>
+          <span>Auto-sync: <span id="countdown-val" class="font-mono text-amber-400 font-bold">10</span>s</span>
+        </div>
+
+        <!-- Manual Refresh Button -->
+        <button id="btn-refresh" class="px-3 py-1.5 bg-orange-600 hover:bg-orange-500 text-white rounded-xl text-xs font-semibold shadow-md shadow-orange-600/20 transition flex items-center gap-1.5 cursor-pointer">
+          <svg id="refresh-icon" class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
+          </svg>
+          <span class="hidden sm:inline">Segarkan</span>
+        </button>
+
+        <!-- Database Settings Modal Trigger -->
+        <button id="btn-open-settings" class="p-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white rounded-xl border border-slate-700 transition cursor-pointer" title="Pengaturan Database RTDB">
+          <svg class="w-4 h-4 text-orange-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/>
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/>
+          </svg>
+        </button>
+
+      </div>
+
+    </div>
+  </header>
+
+  <!-- MAIN CONTENT CONTAINER -->
+  <main class="max-w-7xl mx-auto px-4 sm:px-6 py-6 w-full space-y-6 flex-1">
+
+    <!-- 1. HERO SPOTLIGHT: TUTUP TOKO TERAKHIR (LATEST SHIFT CLOSING) -->
+    <section id="hero-latest-closing" class="bg-gradient-to-br from-slate-900 via-slate-900 to-orange-950/40 border border-orange-500/30 rounded-2xl p-5 sm:p-6 shadow-2xl relative overflow-hidden">
+      <!-- Glow effect -->
+      <div class="absolute -right-12 -top-12 w-48 h-48 bg-orange-500/10 rounded-full blur-3xl pointer-events-none"></div>
+
+      <div class="flex flex-col lg:flex-row lg:items-center justify-between gap-6 relative z-10">
+        
+        <!-- Left info -->
+        <div class="space-y-3 max-w-xl">
+          <div class="flex flex-wrap items-center gap-2">
+            <span class="inline-flex items-center gap-1.5 bg-orange-500/20 text-orange-400 border border-orange-500/40 text-[11px] font-bold px-3 py-1 rounded-full uppercase tracking-wider">
+              <span class="w-2 h-2 rounded-full bg-orange-500 pulse-dot"></span>
+              Tutup Kasir / Toko Terkini
+            </span>
+            <span id="hero-shift-time" class="text-xs font-mono text-slate-400 bg-slate-800/80 px-2.5 py-1 rounded-lg">
+              Memuat data...
+            </span>
+            <span id="hero-cashier-badge" class="text-xs font-bold text-amber-400 bg-amber-500/10 border border-amber-500/30 px-2.5 py-1 rounded-lg">
+              Kasir: -
+            </span>
+          </div>
+
+          <div>
+            <h2 id="hero-shift-id" class="text-xl sm:text-3xl font-black text-white tracking-tight">
+              Menghubungkan ke Realtime Database...
+            </h2>
+            <p id="hero-shift-notes" class="text-xs sm:text-sm text-slate-300 mt-1 italic">
+              Data laporan tutup kasir akan otomatis muncul saat staf melakukan tutup shift di aplikasi POS.
+            </p>
+          </div>
+
+          </div>
+
+        <!-- Right Quick Stats Grid -->
+        <div class="grid grid-cols-2 sm:grid-cols-3 gap-3 w-full lg:w-auto">
+          
+          <div class="bg-slate-800/90 border border-slate-700/80 rounded-xl p-3.5">
+            <div class="text-[11px] font-medium text-slate-400">Total Omset Ditutup</div>
+            <div id="hero-stat-rev" class="text-base sm:text-xl font-black font-mono text-emerald-400 mt-1">Rp 0</div>
+            <div id="hero-stat-trx" class="text-[10px] text-slate-500 font-mono mt-0.5">0 Transaksi</div>
+          </div>
+
+          <div class="bg-slate-800/90 border border-slate-700/80 rounded-xl p-3.5">
+            <div class="text-[11px] font-medium text-slate-400">Kas Fisik di Laci</div>
+            <div id="hero-stat-act-cash" class="text-base sm:text-xl font-black font-mono text-amber-400 mt-1">Rp 0</div>
+            <div id="hero-stat-exp-cash" class="text-[10px] text-slate-500 font-mono mt-0.5">Sistem: Rp 0</div>
+          </div>
+
+          <div class="bg-slate-800/90 border border-slate-700/80 rounded-xl p-3.5 col-span-2 sm:col-span-1">
+            <div class="text-[11px] font-medium text-slate-400">Non-Tunai (QRIS/EDC)</div>
+            <div id="hero-stat-noncash" class="text-base sm:text-xl font-black font-mono text-purple-400 mt-1">Rp 0</div>
+            <div class="text-[10px] text-emerald-500 font-mono mt-0.5">Masuk Rekening/Bank</div>
+          </div>
+
+        </div>
+
+      </div>
+
+      <!-- Bottom action buttons for Latest Shift -->
+      <div class="mt-5 pt-4 border-t border-slate-800/80 flex flex-wrap items-center justify-between gap-3">
+        <div class="flex items-center gap-2 text-xs text-slate-400">
+          <span>Node RTDB: <code class="text-orange-400 font-mono">/shift_reports</code></span>
+          <span>•</span>
+          <span id="hero-total-shifts-note">0 laporan tersimpan</span>
+        </div>
+
+        <div class="flex items-center gap-2 flex-wrap">
+          <button id="hero-btn-view-receipt" class="px-3.5 py-1.5 bg-orange-600 hover:bg-orange-500 text-white rounded-xl text-xs font-bold transition flex items-center gap-1.5 shadow-md shadow-orange-600/30 cursor-pointer">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z"/>
+            </svg>
+            <span>Cetak Struk Tutup Toko</span>
+          </button>
+
+          <button id="hero-btn-share-wa" class="px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold transition flex items-center gap-1.5 shadow-md shadow-emerald-600/20 cursor-pointer">
+            <svg class="w-4 h-4 fill-current" viewBox="0 0 24 24">
+              <path d="M12.031 6.172c-3.181 0-5.767 2.586-5.768 5.766-.001 1.298.38 2.27 1.019 3.287l-.582 2.128 2.182-.573c.978.58 1.911.928 3.145.929 3.178 0 5.767-2.587 5.768-5.766.001-3.187-2.575-5.77-5.764-5.771zm3.392 8.244c-.144.405-.837.774-1.17.824-.299.045-.677.063-1.092-.069-.252-.08-.575-.187-.988-.365-1.739-.751-2.874-2.502-2.961-2.617-.087-.116-.708-.94-.708-1.793s.448-1.273.607-1.446c.159-.173.346-.217.462-.217l.332.006c.106.005.249-.04.39.298.144.347.491 1.2.534 1.287.043.087.072.188.014.304-.058.116-.087.188-.173.289l-.26.304c-.087.086-.177.18-.076.354.101.174.449.741.964 1.201.662.591 1.221.774 1.394.86.174.086.275.072.376-.044.101-.116.433-.506.549-.68.116-.173.231-.145.39-.086.159.058 1.011.477 1.184.564.173.087.289.13.332.202.043.073.043.419-.101.824z"/>
+            </svg>
+            <span>Kirim WhatsApp</span>
+          </button>
+        </div>
+      </div>
+    </section>
+
+    <!-- 2. AGGREGATE SUMMARY METRICS (FILTERABLE) -->
+    <section class="grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4">
+      
+      <!-- Card 1: Total Omset -->
+      <div class="bg-slate-900 border border-slate-800 rounded-2xl p-4 sm:p-5 shadow-lg">
+        <div class="flex items-center justify-between">
+          <span class="text-xs font-semibold text-slate-400">Total Omset Shift</span>
+          <span class="p-2 rounded-xl bg-emerald-500/10 text-emerald-400">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+            </svg>
+          </span>
+        </div>
+        <div id="metric-total-rev" class="text-lg sm:text-2xl font-black font-mono text-emerald-400 mt-2">Rp 0</div>
+        <div id="metric-rev-sub" class="text-[11px] text-slate-500 mt-0.5">Dari 0 laporan tutup kasir</div>
+      </div>
+
+      <!-- Card 2: Total Kas Fisik -->
+      <div class="bg-slate-900 border border-slate-800 rounded-2xl p-4 sm:p-5 shadow-lg">
+        <div class="flex items-center justify-between">
+          <span class="text-xs font-semibold text-slate-400">Total Kas Fisik Masuk</span>
+          <span class="p-2 rounded-xl bg-amber-500/10 text-amber-400">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 9V7a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2m2 4h10a2 2 0 002-2v-6a2 2 0 00-2-2H9a2 2 0 00-2 2v6a2 2 0 002 2zm7-5a2 2 0 11-4 0 2 2 0 014 0z"/>
+            </svg>
+          </span>
+        </div>
+        <div id="metric-total-cash" class="text-lg sm:text-2xl font-black font-mono text-amber-400 mt-2">Rp 0</div>
+        <div id="metric-cash-sub" class="text-[11px] text-slate-500 mt-0.5">Uang tunai di laci</div>
+      </div>
+
+      <!-- Card 3: Total Non-Tunai -->
+      <div class="bg-slate-900 border border-slate-800 rounded-2xl p-4 sm:p-5 shadow-lg">
+        <div class="flex items-center justify-between">
+          <span class="text-xs font-semibold text-slate-400">Total Non-Tunai (QRIS/EDC)</span>
+          <span class="p-2 rounded-xl bg-purple-500/10 text-purple-400">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z"/>
+            </svg>
+          </span>
+        </div>
+        <div id="metric-total-noncash" class="text-lg sm:text-2xl font-black font-mono text-purple-400 mt-2">Rp 0</div>
+        <div class="text-[11px] text-slate-500 mt-0.5">Transfer & QRIS langsung bank</div>
+      </div>
+
+    </section>
+
+    <!-- 3. VISUAL CHART: TREN OMSET & KAS PER SHIFT -->
+    <section class="bg-slate-900 border border-slate-800 rounded-2xl p-4 sm:p-5 shadow-lg space-y-4">
+      <div class="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h3 class="text-sm font-bold text-white">Grafik Omset & Kas per Laporan Tutup Toko</h3>
+          <p class="text-xs text-slate-400">Perbandingan Penjualan Kotor, Kas Fisik, dan Non-Tunai per Shift</p>
+        </div>
+        <div class="flex items-center gap-3 text-xs">
+          <span class="flex items-center gap-1.5"><span class="w-2.5 h-2.5 rounded-full bg-emerald-500"></span> Total Omset</span>
+          <span class="flex items-center gap-1.5"><span class="w-2.5 h-2.5 rounded-full bg-amber-500"></span> Kas Fisik</span>
+          <span class="flex items-center gap-1.5"><span class="w-2.5 h-2.5 rounded-full bg-purple-500"></span> Non-Tunai</span>
+        </div>
+      </div>
+
+      <div class="h-60 sm:h-72 w-full">
+        <canvas id="shift-trend-chart"></canvas>
+      </div>
+    </section>
+
+    <!-- 4. FILTER & SEARCH CONTROLS -->
+    <section class="bg-slate-900/90 border border-slate-800 rounded-2xl p-4 shadow-lg space-y-3">
+      <div class="flex flex-col md:flex-row md:items-center justify-between gap-3">
+        
+        <!-- Search input -->
+        <div class="relative flex-1">
+          <svg class="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/>
+          </svg>
+          <input type="text" id="search-shifts" placeholder="Cari ID shift, nama kasir, tanggal, atau catatan..." 
+            class="w-full bg-slate-950 border border-slate-800 rounded-xl pl-10 pr-4 py-2 text-xs text-slate-200 placeholder-slate-500 focus:outline-none focus:border-orange-500 transition">
+        </div>
+
+        <!-- Filter Dropdowns -->
+        <div class="flex flex-wrap items-center gap-2">
+          
+          <!-- Period Preset Filter -->
+          <select id="filter-period" class="bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-slate-200 focus:outline-none focus:border-orange-500 cursor-pointer">
+            <option value="TODAY" selected>⚡ Hari Ini (Reset ke 0 saat tanggal ganti)</option>
+            <option value="YESTERDAY">Kemarin</option>
+            <option value="LAST_7_DAYS">7 Hari Terakhir</option>
+            <option value="THIS_MONTH">Bulan Ini</option>
+            <option value="ALL">Semua Periode</option>
+          </select>
+
+          <!-- Cashier Filter -->
+          <select id="filter-cashier" class="bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-slate-200 focus:outline-none focus:border-orange-500 cursor-pointer">
+            <option value="ALL">Semua Kasir</option>
+          </select>
+
+          <!-- Export CSV Button -->
+          <button id="btn-export-csv" class="px-3 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white rounded-xl text-xs font-semibold border border-slate-700 transition flex items-center gap-1.5 cursor-pointer">
+            <svg class="w-3.5 h-3.5 text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
+            </svg>
+            <span>Ekspor CSV</span>
+          </button>
+
+        </div>
+
+      </div>
+    </section>
+
+    <!-- 5. TABLE: DAFTAR RIWAYAT LAPORAN TUTUP TOKO & KASIR -->
+    <section class="bg-slate-900 border border-slate-800 rounded-2xl shadow-xl overflow-hidden">
+      
+      <div class="p-4 sm:p-5 border-b border-slate-800 flex flex-wrap items-center justify-between gap-3">
+        <div class="flex items-center gap-2.5">
+          <h3 class="text-base font-extrabold text-white">Riwayat Tutup Toko & Tutup Shift</h3>
+          <span id="shifts-count-badge" class="bg-orange-500/10 text-orange-400 border border-orange-500/30 text-xs font-bold px-2.5 py-0.5 rounded-full">
+            0 Laporan
+          </span>
+        </div>
+
+        <div class="text-xs text-slate-400">
+          Diurutkan dari penutupan terbaru
+        </div>
+      </div>
+
+      <!-- Responsive Table Container -->
+      <div class="overflow-x-auto">
+        <table class="w-full text-left border-collapse text-xs">
+          <thead>
+            <tr class="bg-slate-950/80 text-slate-400 border-b border-slate-800 font-bold uppercase tracking-wider text-[11px]">
+              <th class="py-3 px-4">No. Dokumen / Shift</th>
+              <th class="py-3 px-4">Waktu Tutup</th>
+              <th class="py-3 px-4">Kasir Penutup</th>
+              <th class="py-3 px-4 text-center">Struk</th>
+              <th class="py-3 px-4 text-right">Total Omset</th>
+              <th class="py-3 px-4 text-right">Kas Sistem</th>
+              <th class="py-3 px-4 text-right">Kas Fisik</th>
+              <th class="py-3 px-4 text-right">Non-Tunai</th>
+              <th class="py-3 px-4">Catatan Kasir</th>
+              <th class="py-3 px-4 text-center no-print">Aksi</th>
+            </tr>
+          </thead>
+          <tbody id="shifts-table-body" class="divide-y divide-slate-800/60 font-medium">
+            <tr>
+              <td colspan="11" class="py-12 text-center text-slate-500">
+                <div class="inline-flex items-center gap-2 text-slate-400">
+                  <svg class="w-5 h-5 animate-spin text-orange-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
+                  </svg>
+                  <span>Mengambil data laporan tutup kasir dari Firebase Realtime Database...</span>
+                </div>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+    </section>
+
+    <!-- 6. DAILY RECONCILIATION SUMMARY (FROM /daily_reports NODE) -->
+    <section class="bg-slate-900 border border-slate-800 rounded-2xl p-4 sm:p-5 shadow-xl space-y-4">
+      <div class="flex items-center justify-between gap-3 flex-wrap">
+        <div>
+          <h3 class="text-base font-extrabold text-white flex items-center gap-2"><span>🗄️</span> Penyimpanan Database Arsip Laporan di Cloud Hosting</h3>
+          <p class="text-xs text-slate-400">Akumulasi audit tersimpan permanen di cloud hosting node <code class="text-orange-400 font-mono">/daily_reports</code> Realtime Database</p>
+        </div>
+        <span id="daily-count-badge" class="bg-slate-800 text-slate-300 text-xs font-bold px-2.5 py-1 rounded-lg">
+          0 Hari Tercatat
+        </span>
+      </div>
+
+      <div class="overflow-x-auto">
+        <table class="w-full text-left border-collapse text-xs">
+          <thead>
+            <tr class="bg-slate-950/80 text-slate-400 border-b border-slate-800 font-bold uppercase tracking-wider text-[11px]">
+              <th class="py-3 px-4">Tanggal</th>
+              <th class="py-3 px-4 text-center">Jumlah Shift</th>
+              <th class="py-3 px-4 text-center">Total Struk</th>
+              <th class="py-3 px-4 text-right">Omset Harian</th>
+              <th class="py-3 px-4 text-right">Kas Fisik Disetor</th>
+              <th class="py-3 px-4 text-right">Kas Menurut Sistem</th>
+              <th class="py-3 px-4 text-right">Total Non-Tunai</th>
+              <th class="py-3 px-4">Kasir Terakhir</th>
+            </tr>
+          </thead>
+          <tbody id="daily-table-body" class="divide-y divide-slate-800/60 font-medium">
+            <tr>
+              <td colspan="9" class="py-8 text-center text-slate-500">
+                Memuat rekapitulasi harian...
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+  </main>
+
+  <!-- MODAL: STRUK THERMAL TUTUP TOKO / SHIFT (PRINT & WA READY) -->
+  <div id="modal-shift-receipt" class="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-3 hidden no-print">
+    <div class="bg-slate-900 border border-slate-700 rounded-2xl max-w-md w-full shadow-2xl flex flex-col max-h-[92vh] overflow-hidden">
+      
+      <!-- Modal Header -->
+      <div class="p-4 border-b border-slate-800 flex items-center justify-between no-print">
+        <div class="flex items-center gap-2">
+          <span class="p-1.5 rounded-lg bg-orange-500/10 text-orange-400">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z"/>
+            </svg>
+          </span>
+          <h3 class="text-sm font-bold text-white">Struk Laporan Tutup Toko</h3>
+        </div>
+        <button id="btn-close-modal" class="text-slate-400 hover:text-white p-1 rounded-lg transition cursor-pointer">
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+          </svg>
+        </button>
+      </div>
+
+      <!-- Printable Thermal Slip Area -->
+      <div class="p-5 overflow-y-auto flex-1 bg-slate-950 font-mono text-xs text-slate-200">
+        <div class="receipt-paper bg-white text-black p-5 rounded-xl shadow-lg border border-slate-200 space-y-3 font-mono">
+          
+          <!-- Store Header -->
+          <div class="text-center pb-2 border-b border-dashed border-slate-300">
+            <div id="receipt-store-name" class="font-extrabold text-base tracking-wider uppercase text-black">FOODROCK POS</div>
+            <div id="receipt-store-address" class="text-[10px] text-slate-600">Laporan Kasir & Toko Online</div>
+            <div id="receipt-store-phone" class="text-[10px] text-slate-600">Telp: -</div>
+            <div class="mt-2 text-xs font-bold border-y border-black py-0.5 uppercase tracking-wider">
+              LAPORAN TUTUP KASIR & TOKO
+            </div>
+          </div>
+
+          <!-- Shift & Cashier Meta -->
+          <div class="text-[11px] space-y-1 text-slate-800">
+            <div class="flex justify-between">
+              <span>ID Shift:</span>
+              <span id="rcpt-shift-id" class="font-bold text-black">-</span>
+            </div>
+            <div class="flex justify-between">
+              <span>Waktu Tutup:</span>
+              <span id="rcpt-closing-time" class="font-bold text-black">-</span>
+            </div>
+            <div class="flex justify-between">
+              <span>Kasir Bertugas:</span>
+              <span id="rcpt-cashier-name" class="font-bold text-black">-</span>
+            </div>
+            <div class="flex justify-between">
+              <span>Total Transaksi:</span>
+              <span id="rcpt-trx-count" class="font-bold text-black">0 Struk</span>
+            </div>
+          </div>
+
+          <div class="border-t border-dashed border-slate-400"></div>
+
+          <!-- Sales Summary -->
+          <div class="text-[11px] space-y-1 text-slate-800">
+            <div class="flex justify-between font-bold text-black">
+              <span>TOTAL OMSET KOTOR:</span>
+              <span id="rcpt-total-revenue">Rp 0</span>
+            </div>
+            <div class="flex justify-between">
+              <span>• Penjualan Tunai:</span>
+              <span id="rcpt-sales-cash">Rp 0</span>
+            </div>
+            <div class="flex justify-between">
+              <span>• Non-Tunai (QRIS/EDC):</span>
+              <span id="rcpt-sales-noncash">Rp 0</span>
+            </div>
+          </div>
+
+          <div class="border-t border-dashed border-slate-400"></div>
+
+          <!-- Cash Drawer Audit -->
+          <div class="text-[11px] space-y-1 text-slate-800">
+            <div class="font-bold text-black uppercase tracking-wider text-[10px]">PENERIMAAN KAS LACI:</div>
+            <div class="flex justify-between font-bold text-black">
+              <span>Uang Fisik Kas Laci:</span>
+              <span id="rcpt-actual-cash">Rp 0</span>
+            </div>
+            <div class="flex justify-between text-slate-600">
+              <span>Kas Menurut Sistem:</span>
+              <span id="rcpt-expected-cash">Rp 0</span>
+            </div>
+          </div>
+
+          <!-- Notes -->
+          <div class="border-t border-dashed border-slate-400 pt-1 text-[10px] text-slate-700 italic">
+            <span>Catatan Kasir:</span>
+            <p id="rcpt-notes" class="text-black font-sans not-italic mt-0.5">-</p>
+          </div>
+
+          <!-- Signatures -->
+          <div class="border-t border-dashed border-slate-400 pt-4 pb-2 grid grid-cols-2 text-center text-[10px] text-slate-800">
+            <div>
+              <div>Kasir,</div>
+              <div class="h-10"></div>
+              <div id="rcpt-sign-cashier" class="font-bold border-t border-slate-400 mx-3 pt-0.5">( Kasir )</div>
+            </div>
+            <div>
+              <div>Supervisor / Owner,</div>
+              <div class="h-10"></div>
+              <div class="font-bold border-t border-slate-400 mx-3 pt-0.5">( ................... )</div>
+            </div>
+          </div>
+
+          <!-- Footer -->
+          <div class="text-center text-[9px] text-slate-500 pt-2 border-t border-slate-300">
+            Disinkronkan secara aman via Firebase Realtime Database
+          </div>
+
+        </div>
+      </div>
+
+      <!-- Modal Footer Action Buttons -->
+      <div class="p-4 border-t border-slate-800 flex items-center justify-between gap-3 no-print bg-slate-900">
+        <button id="modal-btn-wa" class="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer">
+          <svg class="w-4 h-4 fill-current" viewBox="0 0 24 24">
+            <path d="M12.031 6.172c-3.181 0-5.767 2.586-5.768 5.766-.001 1.298.38 2.27 1.019 3.287l-.582 2.128 2.182-.573c.978.58 1.911.928 3.145.929 3.178 0 5.767-2.587 5.768-5.766.001-3.187-2.575-5.77-5.764-5.771zm3.392 8.244c-.144.405-.837.774-1.17.824-.299.045-.677.063-1.092-.069-.252-.08-.575-.187-.988-.365-1.739-.751-2.874-2.502-2.961-2.617-.087-.116-.708-.94-.708-1.793s.448-1.273.607-1.446c.159-.173.346-.217.462-.217l.332.006c.106.005.249-.04.39.298.144.347.491 1.2.534 1.287.043.087.072.188.014.304-.058.116-.087.188-.173.289l-.26.304c-.087.086-.177.18-.076.354.101.174.449.741.964 1.201.662.591 1.221.774 1.394.86.174.086.275.072.376-.044.101-.116.433-.506.549-.68.116-.173.231-.145.39-.086.159.058 1.011.477 1.184.564.173.087.289.13.332.202.043.073.043.419-.101.824z"/>
+          </svg>
+          <span>Share WhatsApp</span>
+        </button>
+
+        <div class="flex items-center gap-2">
+          <button id="modal-btn-print" class="px-4 py-2 bg-orange-600 hover:bg-orange-500 text-white rounded-xl text-xs font-bold transition flex items-center gap-1.5 shadow-md shadow-orange-600/30 cursor-pointer">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z"/>
+            </svg>
+            <span>Cetak Thermal</span>
+          </button>
+
+          <button id="modal-btn-close" class="px-3.5 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl text-xs font-semibold transition cursor-pointer">
+            Tutup
+          </button>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- MODAL: SETTINGS DATABASE RTDB -->
+  <div id="modal-settings" class="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 hidden no-print">
+    <div class="bg-slate-900 border border-slate-700 rounded-2xl max-w-lg w-full shadow-2xl p-5 space-y-4">
+      
+      <div class="flex items-center justify-between border-b border-slate-800 pb-3">
+        <div class="flex items-center gap-2">
+          <div class="w-8 h-8 rounded-lg bg-orange-500/20 text-orange-400 flex items-center justify-center font-bold">
+            ⚙️
+          </div>
+          <div>
+            <h3 class="text-sm font-bold text-white">Pengaturan Firebase Realtime Database</h3>
+            <p class="text-[11px] text-slate-400">Hubungkan dashboard ke database RTDB yang diinginkan</p>
+          </div>
+        </div>
+        <button id="btn-close-settings" class="text-slate-400 hover:text-white p-1 rounded-lg transition cursor-pointer">
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+          </svg>
+        </button>
+      </div>
+
+      <div class="space-y-3 text-xs">
+        <div>
+          <label class="block font-semibold text-slate-300 mb-1">Nama Database RTDB / Instance ID</label>
+          <input type="text" id="input-rtdb-instance" placeholder="contoh: foodrock-report-default-rtdb" 
+            class="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-slate-200 font-mono focus:outline-none focus:border-orange-500">
+          <p class="text-[10px] text-slate-500 mt-1">Default project ini: <code class="text-orange-400">foodrock-report-default-rtdb</code></p>
+        </div>
+
+        <div>
+          <label class="block font-semibold text-slate-300 mb-1">Region Cloud Database</label>
+          <select id="select-rtdb-region" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-slate-200 focus:outline-none focus:border-orange-500 cursor-pointer">
+            <option value="asia-southeast1">Singapore (asia-southeast1) - *.asia-southeast1.firebasedatabase.app</option>
+            <option value="us-central1">United States (us-central1) - *.firebaseio.com</option>
+            <option value="europe-west1">Europe West (europe-west1) - *.europe-west1.firebasedatabase.app</option>
+          </select>
+        </div>
+
+        <div class="bg-slate-950 p-3 rounded-xl border border-slate-800/80 space-y-1">
+          <div class="text-[11px] font-bold text-slate-300">URL Target REST API:</div>
+          <div id="settings-preview-url" class="font-mono text-[10px] text-emerald-400 break-all select-all">
+            https://foodrock-report-default-rtdb.asia-southeast1.firebasedatabase.app
+          </div>
+        </div>
+      </div>
+
+      <div class="pt-3 border-t border-slate-800 flex justify-end gap-2">
+        <button id="btn-reset-db-default" class="px-3.5 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl text-xs font-semibold transition cursor-pointer">
+          Reset ke Default
+        </button>
+        <button id="btn-save-settings" class="px-4 py-1.5 bg-orange-600 hover:bg-orange-500 text-white rounded-xl text-xs font-bold transition shadow-md shadow-orange-600/30 cursor-pointer">
+          Simpan & Muat Ulang
+        </button>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- FOOTER -->
+  <footer class="bg-slate-900 border-t border-slate-800/80 py-4 px-4 sm:px-6 text-center text-xs text-slate-500 no-print">
+    <div class="max-w-7xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-2">
+      <div>
+        <span>Portal Laporan Tutup Toko Kasir POS &bull; 100% Realtime Database Murni (Tanpa Firestore)</span>
+      </div>
+      <div class="flex items-center gap-3">
+        <a href="rtdb-laporan.html" class="hover:text-orange-400 transition">Portal RTDB Lengkap</a>
+        <span>&bull;</span>
+        <a href="index.html" class="hover:text-orange-400 transition">Portal Utama</a>
+      </div>
+    </div>
+  </footer>
+
+  <!-- CORE JAVASCRIPT: PURE REALTIME DATABASE REST SYNC ENGINE -->
+  <script>
+    // Configuration & State
+    const CONFIG = {
+      defaultInstance: 'foodrock-report-default-rtdb',
+      defaultRegion: 'asia-southeast1',
+      autoRefreshSeconds: 10
+    };
+
+    // Parse URL params or LocalStorage
+    const urlParams = new URLSearchParams(window.location.search);
+    let rtdbInstance = urlParams.get('db') || urlParams.get('rtdb') || urlParams.get('databaseId') || localStorage.getItem('pos_rtdb_instance') || CONFIG.defaultInstance;
+    let rtdbRegion = urlParams.get('region') || localStorage.getItem('pos_rtdb_region') || CONFIG.defaultRegion;
+
+    // Sanitize instance name
+    if (rtdbInstance.includes('.firebasedatabase.app') || rtdbInstance.includes('.firebaseio.com')) {
+      rtdbInstance = rtdbInstance.replace('https://', '').replace('.asia-southeast1.firebasedatabase.app', '').replace('.firebaseio.com', '').split('.')[0];
+    }
+
+    let shiftReports = [];
+    let dailyReports = [];
+    let storeProfile = {};
+    let latestClosing = null;
+    let currentModalShift = null;
+    let chartInstance = null;
+    let countdownTimer = CONFIG.autoRefreshSeconds;
+
+    // Helpers
+    function formatRupiah(num) {
+      const val = Number(num) || 0;
+      return 'Rp ' + val.toLocaleString('id-ID');
+    }
+
+    function formatDate(val) {
+      if (!val) return '-';
+      const d = new Date(val);
+      if (isNaN(d.getTime())) return String(val);
+      return d.toLocaleDateString('id-ID', {
+        day: '2-digit',
+        month: 'short',
+        year: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit'
+      });
+    }
+
+    function formatShortDate(val) {
+      if (!val) return '-';
+      const d = new Date(val);
+      if (isNaN(d.getTime())) return String(val);
+      return d.toLocaleDateString('id-ID', {
+        day: '2-digit',
+        month: 'short'
+      });
+    }
+
+    function getBaseRtdbUrl(instance, region) {
+      if (region === 'us-central1') {
+        return `https://${instance}.firebaseio.com`;
+      }
+      return `https://${instance}.${region}.firebasedatabase.app`;
+    }
+
+    function getRtdbCandidates(instance) {
+      return [
+        `https://${instance}.asia-southeast1.firebasedatabase.app`,
+        `https://${instance}.firebaseio.com`,
+        `https://${instance}.europe-west1.firebasedatabase.app`
+      ];
+    }
+
+    function getTutupTokoRelayBases() {
+      const clean = (v) => {
+        if (!v) return null;
+        const s = String(v).trim().replace(/\/+$/, '');
+        return /^https?:\/\//i.test(s) ? s : null;
+      };
+      const paramRelay = clean(urlParams.get('localRelay') || urlParams.get('relay') || urlParams.get('relayUrl'));
+      if (paramRelay) {
+        try { localStorage.setItem('pos_local_relay_url', paramRelay); } catch (_) {}
+      }
+      let storedRelay = null;
+      try { storedRelay = clean(localStorage.getItem('pos_local_relay_url')); } catch (_) {}
+      const list = [];
+      if (paramRelay) list.push(paramRelay);
+      if (window.location.protocol === 'http:' || window.location.protocol === 'https:') {
+        list.push(window.location.origin);
+      }
+      if (storedRelay) list.push(storedRelay);
+      if (!paramRelay) {
+        list.push('http://127.0.0.1:8080', 'http://127.0.0.1:8765', 'http://localhost:8080', 'http://localhost:8765');
+      }
+      return Array.from(new Set(list.filter(Boolean).map(b => b.replace(/\/+$/, ''))));
+    }
+
+    // Dynamic REST fetch with multi-relay discovery + RTDB fallback
+    async function fetchRtdbNode(nodePath) {
+      const cleanPath = String(nodePath || '').replace(/^\/+/, '');
+      let relayData = null;
+      for (const base of getTutupTokoRelayBases()) {
+        try {
+          const relayRes = await fetch(`${base}/api/sync/${cleanPath}`, { cache: 'no-store' });
+          if (relayRes.ok) {
+            const ct = (relayRes.headers.get('content-type') || '').toLowerCase();
+            if (ct.includes('text/html')) continue;
+            const parsed = await relayRes.json();
+            if (parsed && typeof parsed === 'object' && !parsed.error) {
+              relayData = parsed;
+              break;
+            }
+          }
+        } catch (e) {}
+      }
+
+      let rtdbData = null;
+      const candidates = getRtdbCandidates(rtdbInstance);
+      for (const base of candidates) {
+        try {
+          const res = await fetch(`${base}/${cleanPath}.json`, { cache: 'no-store' });
+          if (res.ok) {
+            const ct = (res.headers.get('content-type') || '').toLowerCase();
+            if (ct.includes('text/html')) continue;
+            const data = await res.json();
+            if (data && typeof data === 'object' && !data.error) {
+              rtdbData = data;
+              break;
+            }
+          }
+        } catch (e) {
+          // try next candidate
+        }
+      }
+
+      if (rtdbData && relayData && !Array.isArray(rtdbData) && !Array.isArray(relayData)) {
+        return { ...rtdbData, ...relayData };
+      }
+      return relayData || rtdbData || null;
+    }
+
+    // Main Data Loader
+    async function loadData() {
+      const refreshIcon = document.getElementById('refresh-icon');
+      if (refreshIcon) refreshIcon.classList.add('animate-spin');
+
+      try {
+        // Fetch Store Profile, Shift Reports, Daily Reports in parallel
+        const [rawShifts, rawDaily, rawProfile] = await Promise.all([
+          fetchRtdbNode('shift_reports'),
+          fetchRtdbNode('daily_reports'),
+          fetchRtdbNode('store_profile/store_main')
+        ]);
+
+        // Process Store Profile
+        if (rawProfile && typeof rawProfile === 'object') {
+          storeProfile = rawProfile;
+          const storeName = storeProfile.storeName || 'Kasir POS';
+          document.getElementById('header-store-info').textContent = `${storeName} • Pantau Rekap Shift & Keuangan Tanpa Firestore`;
+          document.getElementById('receipt-store-name').textContent = storeName.toUpperCase();
+          if (storeProfile.address) document.getElementById('receipt-store-address').textContent = storeProfile.address;
+          if (storeProfile.phone) document.getElementById('receipt-store-phone').textContent = `Telp: ${storeProfile.phone}`;
+        }
+
+        // Process Shift Reports
+        shiftReports = [];
+        if (rawShifts && typeof rawShifts === 'object') {
+          shiftReports = Object.keys(rawShifts).map(key => {
+            const item = rawShifts[key];
+            if (typeof item === 'string') {
+              try { return { id: key, ...JSON.parse(item) }; } catch (e) { return { id: key }; }
+            }
+            return { id: key, ...item };
+          });
+
+          // Sort by closingTime or timestamp descending
+          shiftReports.sort((a, b) => {
+            const timeA = a.closingTime || (a.timestamp ? new Date(a.timestamp).getTime() : 0);
+            const timeB = b.closingTime || (b.timestamp ? new Date(b.timestamp).getTime() : 0);
+            return timeB - timeA;
+          });
+        }
+
+        // Process Daily Reports
+        dailyReports = [];
+        if (rawDaily && typeof rawDaily === 'object') {
+          dailyReports = Object.keys(rawDaily)
+            .filter(key => /^\d{4}-\d{2}-\d{2}$/.test(key))
+            .map(key => {
+              const val = rawDaily[key];
+              if (typeof val === 'string') {
+                try { return { date: key, ...JSON.parse(val) }; } catch (e) { return { date: key }; }
+              }
+              return { date: (val && val.date) ? String(val.date).slice(0, 10) : key, ...val };
+            });
+          dailyReports.sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+        }
+
+        // Update UI
+        updateConnectionStatus(true);
+        populateCashierFilter();
+        renderHeroClosing();
+        renderFilteredShifts();
+        renderDailyTable();
+        renderChart();
+
+      } catch (err) {
+        console.error('Failed to load RTDB data:', err);
+        updateConnectionStatus(false);
+      } finally {
+        if (refreshIcon) refreshIcon.classList.remove('animate-spin');
+        countdownTimer = CONFIG.autoRefreshSeconds;
+      }
+    }
+
+    function updateConnectionStatus(isOnline) {
+      const dot = document.getElementById('conn-dot');
+      const label = document.getElementById('conn-host-label');
+      if (label) label.textContent = rtdbInstance;
+      if (dot) {
+        if (isOnline) {
+          dot.className = 'w-2.5 h-2.5 rounded-full bg-emerald-500 pulse-dot';
+        } else {
+          dot.className = 'w-2.5 h-2.5 rounded-full bg-rose-500';
+        }
+      }
+    }
+
+    function getLocalDateStr(d = new Date()) {
+      const year = d.getFullYear();
+      const month = String(d.getMonth() + 1).padStart(2, '0');
+      const day = String(d.getDate()).padStart(2, '0');
+      return `${year}-${month}-${day}`;
+    }
+
+    function extractShiftDateStr(s) {
+      if (!s || typeof s !== 'object') return '';
+      if (s.date && /^\d{4}-\d{2}-\d{2}/.test(String(s.date))) {
+        return String(s.date).slice(0, 10);
+      }
+      if (s.closingTime) {
+        const d = new Date(Number(s.closingTime));
+        if (!isNaN(d.getTime())) return getLocalDateStr(d);
+      }
+      const raw = String(s.timestamp || s.endTime || '');
+      if (/^\d{4}-\d{2}-\d{2}/.test(raw)) {
+        if (raw.length > 10 && /([Zz]|[+-]\d{2}:?\d{2})$/.test(raw)) {
+          const parsed = new Date(raw);
+          if (!isNaN(parsed.getTime())) return getLocalDateStr(parsed);
+        }
+        return raw.slice(0, 10);
+      }
+      return '';
+    }
+
+    // Render Hero Latest Closing (scoped to active period so TODAY resets to Rp 0 on new date!)
+    function renderHeroClosing() {
+      const elId = document.getElementById('hero-shift-id');
+      const elTime = document.getElementById('hero-shift-time');
+      const elCashier = document.getElementById('hero-cashier-badge');
+      const elNotes = document.getElementById('hero-shift-notes');
+      const elAudit = document.getElementById('hero-cash-audit-badge');
+      const elRev = document.getElementById('hero-stat-rev');
+      const elTrx = document.getElementById('hero-stat-trx');
+      const elActCash = document.getElementById('hero-stat-act-cash');
+      const elExpCash = document.getElementById('hero-stat-exp-cash');
+      const elNoncash = document.getElementById('hero-stat-noncash');
+      const elTotalNote = document.getElementById('hero-total-shifts-note');
+
+      const periodVal = document.getElementById('filter-period')?.value || 'TODAY';
+      const todayStr = getLocalDateStr(new Date());
+      const yesterday = new Date();
+      yesterday.setDate(yesterday.getDate() - 1);
+      const yestStr = getLocalDateStr(yesterday);
+
+      const scopedShifts = shiftReports.filter(s => {
+        const sDate = extractShiftDateStr(s);
+        if (!sDate) return false;
+        if (periodVal === 'TODAY') return sDate === todayStr;
+        if (periodVal === 'YESTERDAY') return sDate === yestStr;
+        return true;
+      });
+
+      if (elTotalNote) elTotalNote.textContent = `${scopedShifts.length} laporan tutup kasir (${periodVal === 'TODAY' ? todayStr : periodVal}) • ${shiftReports.length} total arsip`;
+
+      if (scopedShifts.length === 0) {
+        elId.textContent = periodVal === 'TODAY' ? `Belum Ada Tutup Kasir Hari Ini` : 'Belum Ada Laporan Tutup Toko';
+        elTime.textContent = `Tanggal: ${periodVal === 'YESTERDAY' ? yestStr : todayStr}`;
+        elCashier.textContent = 'Kasir: -';
+        elNotes.textContent = 'Saat pergantian tanggal baru, laporan hari ini dimulai dari nol (Rp 0) hingga ada tutup kasir.';
+        elAudit.innerHTML = `<span class="inline-flex items-center gap-1.5 bg-slate-800 text-slate-400 text-xs px-3 py-1 rounded-lg border border-slate-700">Mulai Rp 0 (${todayStr})</span>`;
+        elRev.textContent = 'Rp 0';
+        elTrx.textContent = '0 Transaksi';
+        elActCash.textContent = 'Rp 0';
+        elExpCash.textContent = 'Sistem: Rp 0';
+        elNoncash.textContent = 'Rp 0';
+        latestClosing = null;
+        return;
+      }
+
+      latestClosing = scopedShifts[0];
+      const s = latestClosing;
+      const shiftDoc = s.shiftNumber || s.id;
+      const cashier = s.cashierName || 'Kasir';
+      const timeStr = formatDate(s.timestamp || s.endTime || s.closingTime);
+      const rev = Number(s.totalRevenue) || 0;
+      const trxCount = Number(s.totalTransactions) || 0;
+      const expCash = Number(s.expectedCash != null ? s.expectedCash : s.totalCash) || 0;
+      const actCash = Number(s.actualCash != null ? s.actualCash : s.totalCash) || 0;
+      const diff = Number(s.difference != null ? s.difference : (actCash - expCash));
+      const nonCash = Number(s.totalNonCash) || 0;
+
+      elId.textContent = shiftDoc;
+      elTime.textContent = timeStr;
+      elCashier.textContent = `Kasir: ${cashier}`;
+      elNotes.textContent = s.notes ? `Catatan: "${s.notes}"` : 'Tutup toko berhasil disinkronkan secara aman ke Firebase Realtime Database.';
+      elRev.textContent = formatRupiah(rev);
+      elTrx.textContent = `${trxCount} Transaksi`;
+      elActCash.textContent = formatRupiah(actCash);
+      elExpCash.textContent = `Sistem: ${formatRupiah(expCash)}`;
+      elNoncash.textContent = formatRupiah(nonCash);
+
+      // Render hero stats complete
+    }
+
+    // Populate Cashier Dropdown
+    function populateCashierFilter() {
+      const select = document.getElementById('filter-cashier');
+      if (!select) return;
+      const currentVal = select.value;
+      const cashiers = new Set();
+      shiftReports.forEach(s => {
+        if (s.cashierName) cashiers.add(s.cashierName);
+      });
+
+      select.innerHTML = '<option value="ALL">Semua Kasir</option>';
+      cashiers.forEach(name => {
+        const opt = document.createElement('option');
+        opt.value = name;
+        opt.textContent = name;
+        select.appendChild(opt);
+      });
+
+      if (cashiers.has(currentVal)) {
+        select.value = currentVal;
+      }
+    }
+
+    // Render Filtered Shift Table & Metrics
+    function renderFilteredShifts() {
+      const searchVal = (document.getElementById('search-shifts')?.value || '').toLowerCase().trim();
+      const periodVal = document.getElementById('filter-period')?.value || 'TODAY';
+      const cashierVal = document.getElementById('filter-cashier')?.value || 'ALL';
+      const diffVal = document.getElementById('filter-diff')?.value || 'ALL';
+
+      const getLocalDateStr = (d) => {
+        const year = d.getFullYear();
+        const month = String(d.getMonth() + 1).padStart(2, '0');
+        const day = String(d.getDate()).padStart(2, '0');
+        return `${year}-${month}-${day}`;
+      };
+
+      const now = new Date();
+      const todayStr = getLocalDateStr(now);
+      const yesterday = new Date(now);
+      yesterday.setDate(now.getDate() - 1);
+      const yestStr = getLocalDateStr(yesterday);
+      const sevenDaysAgo = new Date(now);
+      sevenDaysAgo.setDate(now.getDate() - 6);
+      const sevenDaysAgoStr = getLocalDateStr(sevenDaysAgo);
+      const thisMonthPrefix = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+
+      const filtered = shiftReports.filter(s => {
+        // Date / Period filter
+        const sDate = extractShiftDateStr(s);
+        if (!sDate) return false;
+
+        if (periodVal === 'TODAY' && sDate !== todayStr) return false;
+        if (periodVal === 'YESTERDAY' && sDate !== yestStr) return false;
+        if (periodVal === 'LAST_7_DAYS' && (sDate < sevenDaysAgoStr || sDate > todayStr)) return false;
+        if (periodVal === 'THIS_MONTH' && !sDate.startsWith(thisMonthPrefix)) return false;
+
+        // Cashier filter
+        if (cashierVal !== 'ALL' && s.cashierName !== cashierVal) return false;
+
+        // Search text
+        if (searchVal) {
+          const docId = (s.shiftNumber || s.id || '').toLowerCase();
+          const cash = (s.cashierName || '').toLowerCase();
+          const notes = (s.notes || '').toLowerCase();
+          const dStr = (s.date || '').toLowerCase();
+          if (!docId.includes(searchVal) && !cash.includes(searchVal) && !notes.includes(searchVal) && !dStr.includes(searchVal)) {
+            return false;
+          }
+        }
+
+        return true;
+      });
+
+      // Update Metrics Cards
+      let totalRev = 0;
+      let totalActCash = 0;
+      let totalNonCash = 0;
+      let totalDiff = 0;
+
+      filtered.forEach(s => {
+        const rev = Number(s.totalRevenue) || 0;
+        const exp = Number(s.expectedCash != null ? s.expectedCash : s.totalCash) || 0;
+        const act = Number(s.actualCash != null ? s.actualCash : s.totalCash) || 0;
+        const diff = Number(s.difference != null ? s.difference : (act - exp));
+        const non = Number(s.totalNonCash) || 0;
+
+        totalRev += rev;
+        totalActCash += act;
+        totalNonCash += non;
+        totalDiff += diff;
+      });
+
+      document.getElementById('metric-total-rev').textContent = formatRupiah(totalRev);
+      document.getElementById('metric-rev-sub').textContent = `Dari ${filtered.length} laporan shift`;
+      document.getElementById('metric-total-cash').textContent = formatRupiah(totalActCash);
+      document.getElementById('metric-total-noncash').textContent = formatRupiah(totalNonCash);
+
+      // Update Table Badge
+      const badge = document.getElementById('shifts-count-badge');
+      if (badge) badge.textContent = `${filtered.length} Laporan`;
+
+      // Render Table Rows
+      const tbody = document.getElementById('shifts-table-body');
+      if (filtered.length === 0) {
+        tbody.innerHTML = `
+          <tr>
+            <td colspan="11" class="py-12 text-center text-slate-500">
+              Tidak ada laporan tutup toko yang sesuai dengan filter atau kata kunci.
+            </td>
+          </tr>
+        `;
+        return;
+      }
+
+      tbody.innerHTML = filtered.map(s => {
+        const docId = s.shiftNumber || s.id;
+        const cashier = s.cashierName || 'Kasir';
+        const dateStr = formatDate(s.timestamp || s.endTime || s.closingTime);
+        const rev = Number(s.totalRevenue) || 0;
+        const expCash = Number(s.expectedCash != null ? s.expectedCash : s.totalCash) || 0;
+        const actCash = Number(s.actualCash != null ? s.actualCash : s.totalCash) || 0;
+        const diff = Number(s.difference != null ? s.difference : (actCash - expCash));
+        const nonCash = Number(s.totalNonCash) || 0;
+        const trx = Number(s.totalTransactions) || 0;
+
+        let diffBadge = `<span class="bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 text-[10px] font-bold px-2 py-0.5 rounded-md">✓ Pas</span>`;
+        if (diff < 0) {
+          diffBadge = `<span class="bg-rose-500/10 text-rose-400 border border-rose-500/30 text-[10px] font-mono font-bold px-2 py-0.5 rounded-md whitespace-nowrap">⚠️ -${formatRupiah(Math.abs(diff))}</span>`;
+        } else if (diff > 0) {
+          diffBadge = `<span class="bg-blue-500/10 text-blue-400 border border-blue-500/30 text-[10px] font-mono font-bold px-2 py-0.5 rounded-md whitespace-nowrap">ℹ️ +${formatRupiah(diff)}</span>`;
+        }
+
+        return `
+          <tr class="hover:bg-slate-800/40 transition">
+            <td class="py-3 px-4 font-mono font-bold text-white whitespace-nowrap">
+              ${docId}
+            </td>
+            <td class="py-3 px-4 text-slate-400 whitespace-nowrap">
+              ${dateStr}
+            </td>
+            <td class="py-3 px-4 text-slate-200 font-semibold whitespace-nowrap">
+              ${cashier}
+            </td>
+            <td class="py-3 px-4 text-center font-mono font-bold text-slate-300">
+              ${trx}
+            </td>
+            <td class="py-3 px-4 text-right font-mono font-black text-emerald-400 whitespace-nowrap">
+              ${formatRupiah(rev)}
+            </td>
+            <td class="py-3 px-4 text-right font-mono text-slate-400 whitespace-nowrap">
+              ${formatRupiah(expCash)}
+            </td>
+            <td class="py-3 px-4 text-right font-mono font-bold text-amber-400 whitespace-nowrap">
+              ${formatRupiah(actCash)}
+            </td>
+            <td class="py-3 px-4 text-right font-mono text-purple-400 whitespace-nowrap">
+              ${formatRupiah(nonCash)}
+            </td>
+            <td class="py-3 px-4 text-slate-400 italic max-w-xs truncate" title="${s.notes || '-'}">
+              ${s.notes || '-'}
+            </td>
+            <td class="py-3 px-4 text-center no-print whitespace-nowrap">
+              <button onclick="window.openReceiptModal('${s.id}')" class="px-2.5 py-1 text-[11px] font-bold rounded-lg bg-orange-500/10 hover:bg-orange-500/20 text-orange-400 border border-orange-500/30 transition cursor-pointer inline-flex items-center gap-1">
+                <span>🖨️</span> Struk
+              </button>
+            </td>
+          </tr>
+        `;
+      }).join('');
+    }
+
+    // Render Daily Reconciliation Table
+    function renderDailyTable() {
+      const tbody = document.getElementById('daily-table-body');
+      const badge = document.getElementById('daily-count-badge');
+      if (badge) badge.textContent = `${dailyReports.length} Hari Tercatat`;
+
+      if (dailyReports.length === 0) {
+        tbody.innerHTML = `
+          <tr>
+            <td colspan="9" class="py-8 text-center text-slate-500">
+              Belum ada rekap harian di node <code class="text-orange-400 font-mono">/daily_reports</code>. Rekap akan terisi otomatis saat kasir melakukan penutupan toko.
+            </td>
+          </tr>
+        `;
+        return;
+      }
+
+      tbody.innerHTML = dailyReports.map(d => {
+        const rev = Number(d.totalRevenue) || 0;
+        const act = Number(d.actualCash != null ? d.actualCash : d.totalCash) || 0;
+        const exp = Number(d.expectedCash != null ? d.expectedCash : d.totalCash) || 0;
+        const diff = Number(d.difference != null ? d.difference : (d.cashDifference != null ? d.cashDifference : (act - exp)));
+        const non = Number(d.totalNonCash) || 0;
+        const trx = Number(d.totalTransactions) || 0;
+        const shiftCount = Number(d.shiftCount || 1);
+
+        let diffBadge = `<span class="text-emerald-400">✓ Pas</span>`;
+        if (diff < 0) {
+          diffBadge = `<span class="text-rose-400 font-mono">⚠️ -${formatRupiah(Math.abs(diff))}</span>`;
+        } else if (diff > 0) {
+          diffBadge = `<span class="text-blue-400 font-mono">ℹ️ +${formatRupiah(diff)}</span>`;
+        }
+
+        return `
+          <tr class="hover:bg-slate-800/40 transition">
+            <td class="py-3 px-4 font-mono font-bold text-white whitespace-nowrap">${d.date}</td>
+            <td class="py-3 px-4 text-center font-mono text-slate-300">${shiftCount} Shift</td>
+            <td class="py-3 px-4 text-center font-mono font-bold text-slate-300">${trx}</td>
+            <td class="py-3 px-4 text-right font-mono font-bold text-emerald-400 whitespace-nowrap">${formatRupiah(rev)}</td>
+            <td class="py-3 px-4 text-right font-mono font-bold text-amber-400 whitespace-nowrap">${formatRupiah(act)}</td>
+            <td class="py-3 px-4 text-right font-mono text-slate-400 whitespace-nowrap">${formatRupiah(exp)}</td>
+            <td class="py-3 px-4 text-right font-mono text-purple-400 whitespace-nowrap">${formatRupiah(non)}</td>
+            <td class="py-3 px-4 text-slate-300 whitespace-nowrap">${d.lastShiftCashier || d.cashierNames || 'Kasir'}</td>
+          </tr>
+        `;
+      }).join('');
+    }
+
+    // Chart.js Visualization
+    function renderChart() {
+      const ctx = document.getElementById('shift-trend-chart')?.getContext('2d');
+      if (!ctx) return;
+
+      const recentShifts = [...shiftReports].slice(0, 10).reverse();
+      const labels = recentShifts.map(s => s.shiftNumber ? s.shiftNumber.replace('SHIFT-', '') : formatShortDate(s.timestamp || s.endTime));
+      const revData = recentShifts.map(s => Number(s.totalRevenue) || 0);
+      const cashData = recentShifts.map(s => Number(s.actualCash != null ? s.actualCash : s.totalCash) || 0);
+      const nonCashData = recentShifts.map(s => Number(s.totalNonCash) || 0);
+
+      if (chartInstance) {
+        chartInstance.destroy();
+      }
+
+      chartInstance = new Chart(ctx, {
+        type: 'bar',
+        data: {
+          labels: labels.length > 0 ? labels : ['Belum ada data'],
+          datasets: [
+            {
+              label: 'Total Omset',
+              data: revData.length > 0 ? revData : [0],
+              backgroundColor: 'rgba(16, 185, 129, 0.8)',
+              borderRadius: 6,
+              borderSkipped: false
+            },
+            {
+              label: 'Kas Fisik',
+              data: cashData.length > 0 ? cashData : [0],
+              backgroundColor: 'rgba(245, 158, 11, 0.8)',
+              borderRadius: 6,
+              borderSkipped: false
+            },
+            {
+              label: 'Non-Tunai (QRIS)',
+              data: nonCashData.length > 0 ? nonCashData : [0],
+              backgroundColor: 'rgba(168, 85, 247, 0.8)',
+              borderRadius: 6,
+              borderSkipped: false
+            }
+          ]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: {
+            legend: { display: false },
+            tooltip: {
+              callbacks: {
+                label: function(context) {
+                  return `${context.dataset.label}: ${formatRupiah(context.raw)}`;
+                }
+              }
+            }
+          },
+          scales: {
+            x: {
+              grid: { color: 'rgba(51, 65, 85, 0.3)' },
+              ticks: { color: '#94a3b8', font: { family: 'Plus Jakarta Sans', size: 10 } }
+            },
+            y: {
+              grid: { color: 'rgba(51, 65, 85, 0.3)' },
+              ticks: {
+                color: '#94a3b8',
+                font: { family: 'JetBrains Mono', size: 10 },
+                callback: function(val) {
+                  if (val >= 1000000) return (val / 1000000).toFixed(1) + 'M';
+                  if (val >= 1000) return (val / 1000).toFixed(0) + 'k';
+                  return val;
+                }
+              }
+            }
+          }
+        }
+      });
+    }
+
+    // Modal Receipt Detail
+    window.openReceiptModal = function(shiftId) {
+      const shift = shiftReports.find(s => s.id === shiftId || s.shiftNumber === shiftId);
+      if (!shift) return;
+      currentModalShift = shift;
+
+      const docId = shift.shiftNumber || shift.id;
+      const cashier = shift.cashierName || 'Kasir';
+      const timeStr = formatDate(shift.timestamp || shift.endTime || shift.closingTime);
+      const rev = Number(shift.totalRevenue) || 0;
+      const cash = Number(shift.totalCash) || 0;
+      const nonCash = Number(shift.totalNonCash) || 0;
+      const expCash = Number(shift.expectedCash != null ? shift.expectedCash : shift.totalCash) || 0;
+      const actCash = Number(shift.actualCash != null ? shift.actualCash : shift.totalCash) || 0;
+      const diff = Number(shift.difference != null ? shift.difference : (actCash - expCash));
+      const trx = Number(shift.totalTransactions) || 0;
+
+      document.getElementById('rcpt-shift-id').textContent = docId;
+      document.getElementById('rcpt-closing-time').textContent = timeStr;
+      document.getElementById('rcpt-cashier-name').textContent = cashier;
+      document.getElementById('rcpt-sign-cashier').textContent = `( ${cashier} )`;
+      document.getElementById('rcpt-trx-count').textContent = `${trx} Struk`;
+      document.getElementById('rcpt-total-revenue').textContent = formatRupiah(rev);
+      document.getElementById('rcpt-sales-cash').textContent = formatRupiah(cash);
+      document.getElementById('rcpt-sales-noncash').textContent = formatRupiah(nonCash);
+      document.getElementById('rcpt-expected-cash').textContent = formatRupiah(expCash);
+      document.getElementById('rcpt-actual-cash').textContent = formatRupiah(actCash);
+      document.getElementById('rcpt-notes').textContent = shift.notes || 'Tidak ada catatan kasir.';
+
+      const diffBadge = document.getElementById('rcpt-diff-badge');
+      if (diff === 0) {
+        diffBadge.textContent = '✓ PAS (Rp 0)';
+        diffBadge.className = 'font-bold text-xs text-emerald-600';
+      } else if (diff < 0) {
+        diffBadge.textContent = `⚠️ KURANG: -${formatRupiah(Math.abs(diff))}`;
+        diffBadge.className = 'font-bold text-xs text-rose-600';
+      } else {
+        diffBadge.textContent = `ℹ️ LEBIH: +${formatRupiah(diff)}`;
+        diffBadge.className = 'font-bold text-xs text-blue-600';
+      }
+
+      document.getElementById('modal-shift-receipt')?.classList.remove('hidden');
+    };
+
+    function closeReceiptModal() {
+      document.getElementById('modal-shift-receipt')?.classList.add('hidden');
+    }
+
+    // WhatsApp Sharing
+    function shareShiftWhatsApp(shift) {
+      if (!shift) return;
+      const docId = shift.shiftNumber || shift.id;
+      const cashier = shift.cashierName || 'Kasir';
+      const timeStr = formatDate(shift.timestamp || shift.endTime || shift.closingTime);
+      const rev = Number(shift.totalRevenue) || 0;
+      const expCash = Number(shift.expectedCash != null ? shift.expectedCash : shift.totalCash) || 0;
+      const actCash = Number(shift.actualCash != null ? shift.actualCash : shift.totalCash) || 0;
+      const diff = Number(shift.difference != null ? shift.difference : (actCash - expCash));
+      const nonCash = Number(shift.totalNonCash) || 0;
+      const trx = Number(shift.totalTransactions) || 0;
+      const store = storeProfile.storeName || 'FOODROCK POS';
+
+      const text = `*📊 LAPORAN TUTUP KASIR & TOKO*\n` +
+                   `🏪 Toko: *${store}*\n` +
+                   `📋 ID Shift: ${docId}\n` +
+                   `🕒 Waktu Tutup: ${timeStr}\n` +
+                   `👨‍💼 Kasir: ${cashier}\n` +
+                   `🧾 Total Transaksi: ${trx} Struk\n` +
+                   `━━━━━━━━━━━━━━━━━━━━\n` +
+                   `💰 *TOTAL OMSET: ${formatRupiah(rev)}*\n` +
+                   `• Kas Fisik di Laci: ${formatRupiah(actCash)}\n` +
+                   `• Pembayaran Tunai: ${formatRupiah(shift.totalCash || 0)}\n` +
+                   `• Non-Tunai (QRIS/EDC): ${formatRupiah(nonCash)}\n` +
+                   `━━━━━━━━━━━━━━━━━━━━\n` +
+                   `📝 Catatan: ${shift.notes || '-'}\n\n` +
+                   `_Disinkronkan otomatis via Firebase Realtime Database_`;
+
+      window.open(`https://api.whatsapp.com/send?text=${encodeURIComponent(text)}`, '_blank');
+    }
+
+    // Export CSV
+    function exportToCsv() {
+      if (shiftReports.length === 0) {
+        alert('Tidak ada data shift untuk diekspor.');
+        return;
+      }
+
+      const headers = ['ID Shift', 'Waktu Tutup', 'Kasir', 'Total Transaksi', 'Total Omset', 'Kas Fisik', 'Kas Sistem', 'Non-Tunai', 'Catatan'];
+      const rows = shiftReports.map(s => [
+        `"${s.shiftNumber || s.id}"`,
+        `"${formatDate(s.timestamp || s.endTime || s.closingTime)}"`,
+        `"${s.cashierName || 'Kasir'}"`,
+        s.totalTransactions || 0,
+        s.totalRevenue || 0,
+        s.actualCash || 0,
+        s.expectedCash || 0,
+        s.totalNonCash || 0,
+        `"${(s.notes || '').replace(/"/g, '""')}"`
+      ]);
+
+      const csvContent = 'data:text/csv;charset=utf-8,\uFEFF' + [headers.join(','), ...rows.map(e => e.join(','))].join('\n');
+      const encodedUri = encodeURI(csvContent);
+      const link = document.createElement('a');
+      link.setAttribute('href', encodedUri);
+      link.setAttribute('download', `laporan-tutup-toko-${new Date().toISOString().slice(0, 10)}.csv`);
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+    }
+
+    // Event Listeners Initialization
+    document.addEventListener('DOMContentLoaded', () => {
+      // Manual refresh
+      document.getElementById('btn-refresh')?.addEventListener('click', loadData);
+
+      // Hero quick actions
+      document.getElementById('hero-btn-view-receipt')?.addEventListener('click', () => {
+        if (latestClosing) openReceiptModal(latestClosing.id);
+      });
+      document.getElementById('hero-btn-share-wa')?.addEventListener('click', () => {
+        if (latestClosing) shareShiftWhatsApp(latestClosing);
+      });
+
+      // Filter events
+      document.getElementById('search-shifts')?.addEventListener('input', renderFilteredShifts);
+      document.getElementById('filter-period')?.addEventListener('change', () => {
+        renderHeroClosing();
+        renderFilteredShifts();
+      });
+      document.getElementById('filter-cashier')?.addEventListener('change', renderFilteredShifts);
+      document.getElementById('filter-diff')?.addEventListener('change', renderFilteredShifts);
+      document.getElementById('btn-export-csv')?.addEventListener('click', exportToCsv);
+
+      // Modal receipt actions
+      document.getElementById('btn-close-modal')?.addEventListener('click', closeReceiptModal);
+      document.getElementById('modal-btn-close')?.addEventListener('click', closeReceiptModal);
+      document.getElementById('modal-btn-print')?.addEventListener('click', () => window.print());
+      document.getElementById('modal-btn-wa')?.addEventListener('click', () => {
+        if (currentModalShift) shareShiftWhatsApp(currentModalShift);
+      });
+
+      // Settings Modal
+      const settingsModal = document.getElementById('modal-settings');
+      document.getElementById('btn-open-settings')?.addEventListener('click', () => {
+        document.getElementById('input-rtdb-instance').value = rtdbInstance;
+        document.getElementById('select-rtdb-region').value = rtdbRegion;
+        updateSettingsPreview();
+        settingsModal?.classList.remove('hidden');
+      });
+      document.getElementById('btn-close-settings')?.addEventListener('click', () => {
+        settingsModal?.classList.add('hidden');
+      });
+
+      function updateSettingsPreview() {
+        const inst = document.getElementById('input-rtdb-instance').value.trim() || CONFIG.defaultInstance;
+        const reg = document.getElementById('select-rtdb-region').value;
+        document.getElementById('settings-preview-url').textContent = getBaseRtdbUrl(inst, reg);
+      }
+
+      document.getElementById('input-rtdb-instance')?.addEventListener('input', updateSettingsPreview);
+      document.getElementById('select-rtdb-region')?.addEventListener('change', updateSettingsPreview);
+
+      document.getElementById('btn-reset-db-default')?.addEventListener('click', () => {
+        document.getElementById('input-rtdb-instance').value = CONFIG.defaultInstance;
+        document.getElementById('select-rtdb-region').value = CONFIG.defaultRegion;
+        updateSettingsPreview();
+      });
+
+      document.getElementById('btn-save-settings')?.addEventListener('click', () => {
+        const newInst = document.getElementById('input-rtdb-instance').value.trim() || CONFIG.defaultInstance;
+        const newReg = document.getElementById('select-rtdb-region').value;
+        rtdbInstance = newInst;
+        rtdbRegion = newReg;
+        localStorage.setItem('pos_rtdb_instance', newInst);
+        localStorage.setItem('pos_rtdb_region', newReg);
+        settingsModal?.classList.add('hidden');
+        loadData();
+      });
+
+      // Auto Refresh Interval
+      setInterval(() => {
+        countdownTimer--;
+        const el = document.getElementById('countdown-val');
+        if (el) el.textContent = countdownTimer;
+        if (countdownTimer <= 0) {
+          loadData();
+        }
+      }, 1000);
+
+      // Date Rollover Watcher (Checks every 5 seconds if midnight passed -> immediate reset to zero!)
+      let lastKnownDateStr = getLocalDateStr(new Date());
+      setInterval(() => {
+        const currentDateStr = getLocalDateStr(new Date());
+        if (currentDateStr !== lastKnownDateStr) {
+          lastKnownDateStr = currentDateStr;
+          console.log('[DateRollover] Tanggal berganti menjadi: ' + currentDateStr + '. Mereset laporan hari ini ke Rp 0.');
+          renderHeroClosing();
+          renderFilteredShifts();
+          renderDailyTable();
+          renderChart();
+          loadData();
+        }
+      }, 5000);
+
+      // Initial Load
+      loadData();
+    });
+  </script>
+</body>
+</html>

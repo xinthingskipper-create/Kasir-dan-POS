@@ -234,9 +234,9 @@ abstract class PosDatabase : RoomDatabase() {
                 com.example.data.model.CloudHostingConfig(
                     id = 1,
                     useSeparateOwnerProject = true,
-                    ownerProjectId = "laporan-service",
-                    ownerDatabaseId = "ai-studio-android-kasirpos-6c79f90a-57f2-4e44-8393-a818a10f5d55",
-                    ownerHostingUrl = "https://ais-dev-wgdowcmyzzxhdk2ko2iu46-852851605479.asia-southeast1.run.app",
+                    ownerProjectId = "foodrock-report",
+                    ownerDatabaseId = "foodrock-report-default-rtdb",
+                    ownerHostingUrl = "http://127.0.0.1:8080/owner.html",
                     enableConsumerWeb = false,
                     consumerProjectId = "gen-lang-client-0076807780",
                     consumerDatabaseId = "(default)",

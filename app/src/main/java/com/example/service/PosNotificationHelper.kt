@@ -25,12 +25,15 @@ object PosNotificationHelper {
 
     const val CHANNEL_LOW_STOCK_ID = "pos_low_stock_alerts"
     const val CHANNEL_BACKGROUND_ID = "pos_background_service"
+    const val CHANNEL_STORE_CLOSING_ID = "pos_store_closing_alerts"
 
     const val NOTIFICATION_ID_FOREGROUND = 1001
     const val NOTIFICATION_ID_LOW_STOCK_SUMMARY = 2001
+    const val NOTIFICATION_ID_STORE_CLOSING = 3001
 
     const val EXTRA_OPEN_TAB = "EXTRA_OPEN_TAB"
     const val TAB_INVENTORY = "INVENTORY"
+    const val TAB_REPORT = "REPORT"
 
     // Menyimpan stok terakhir yang sudah dikirimkan notifikasi agar tidak spam berulang untuk nilai stok sama
     private val lastNotifiedStockById = ConcurrentHashMap<Long, Int>()
@@ -58,8 +61,19 @@ object PosNotificationHelper {
                 setShowBadge(false)
             }
 
+            val storeClosingChannel = NotificationChannel(
+                CHANNEL_STORE_CLOSING_ID,
+                "Notifikasi Tutup Toko & Kirim Laporan",
+                NotificationManager.IMPORTANCE_HIGH
+            ).apply {
+                description = "Notifikasi saat kasir menekan Tutup Toko atau saat tutup toko otomatis terjadwal mengirim laporan ke database"
+                enableVibration(true)
+                enableLights(true)
+            }
+
             nm.createNotificationChannel(stockChannel)
             nm.createNotificationChannel(bgChannel)
+            nm.createNotificationChannel(storeClosingChannel)
         }
     }
 
@@ -284,6 +298,90 @@ object PosNotificationHelper {
             newlyTriggered.size
         } catch (_: SecurityException) {
             0
+        }
+    }
+
+    private fun formatCurrencyId(amount: Double): String {
+        val rounded = kotlin.math.round(amount).toLong()
+        val formatted = String.format(java.util.Locale("id", "ID"), "%,d", rounded).replace(',', '.')
+        return "Rp $formatted"
+    }
+
+    /**
+     * Mengirim push notifikasi saat tombol Tutup Toko ditekan atau saat Tutup Toko Otomatis terjadwal selesai dijalankan.
+     */
+    fun notifyStoreClosed(
+        context: Context,
+        storeName: String,
+        totalRevenue: Double,
+        totalTransactions: Int,
+        totalCash: Double,
+        totalNonCash: Double,
+        cashierName: String,
+        isAutomatic: Boolean = false,
+        cloudSynced: Boolean? = null,
+        onlyAlertOnce: Boolean = false
+    ): Boolean {
+        ensureChannels(context)
+        if (!hasNotificationPermission(context)) {
+            return false
+        }
+
+        val openReportIntent = Intent(context, MainActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
+            putExtra(EXTRA_OPEN_TAB, TAB_REPORT)
+        }
+        val pendingIntent = PendingIntent.getActivity(
+            context,
+            301,
+            openReportIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+
+        val cleanStore = storeName.ifBlank { "Kasir POS" }
+        val title = if (isAutomatic) {
+            "⏰ Tutup Toko Otomatis Selesai"
+        } else {
+            "🔒 Tutup Toko Berhasil"
+        }
+
+        val syncStatusText = when (cloudSynced) {
+            true -> "☁️ Laporan terkirim otomatis ke Database Laporan Online"
+            false -> "💾 Tersimpan lokal di Room DB (menunggu koneksi sinkron)"
+            null -> "☁️ Mengirim laporan ke Database Laporan Online..."
+        }
+
+        val shortText = "Omset ${formatCurrencyId(totalRevenue)} • $totalTransactions transaksi • ${if (cloudSynced == true) "Terkirim ke DB" else "Tersimpan"}"
+
+        val bigText = buildString {
+            appendLine("🏪 $cleanStore")
+            appendLine("👤 Petugas: ${cashierName.ifBlank { "Kasir" }}")
+            appendLine("💰 Omset: ${formatCurrencyId(totalRevenue)} ($totalTransactions transaksi)")
+            appendLine("💵 Tunai: ${formatCurrencyId(totalCash)} | 💳 Non-Tunai: ${formatCurrencyId(totalNonCash)}")
+            append(syncStatusText)
+        }
+
+        val builder = NotificationCompat.Builder(context, CHANNEL_STORE_CLOSING_ID)
+            .setSmallIcon(R.drawable.ic_pos_logo)
+            .setContentTitle(title)
+            .setContentText(shortText)
+            .setSubText(cleanStore)
+            .setStyle(NotificationCompat.BigTextStyle().bigText(bigText))
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setCategory(NotificationCompat.CATEGORY_STATUS)
+            .setOnlyAlertOnce(onlyAlertOnce)
+            .setAutoCancel(true)
+            .setContentIntent(pendingIntent)
+
+        if (!onlyAlertOnce) {
+            builder.setDefaults(NotificationCompat.DEFAULT_ALL)
+        }
+
+        return try {
+            NotificationManagerCompat.from(context).notify(NOTIFICATION_ID_STORE_CLOSING, builder.build())
+            true
+        } catch (_: SecurityException) {
+            false
         }
     }
 }

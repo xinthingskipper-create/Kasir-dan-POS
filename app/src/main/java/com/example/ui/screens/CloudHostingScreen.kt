@@ -474,9 +474,7 @@ fun CloudHostingScreen(
 
                             Spacer(modifier = Modifier.height(8.dp))
 
-                            // Action to open web online Chrome for database archives
-                            val separator = if (ownerHostingUrl.contains("?")) "&" else "?"
-                            val fullWebUrl = "$ownerHostingUrl${separator}projectId=$ownerProjectId&databaseId=$ownerDatabaseId"
+                            val fullWebUrl = viewModel.buildChromeWebReportUrl()
                             Button(
                                 onClick = {
                                     try {
@@ -923,7 +921,11 @@ fun CloudHostingScreen(
 
                                 Button(
                                     onClick = {
-                                        val fullUrl = "$ownerHostingUrl?projectId=$ownerProjectId&databaseId=$ownerDatabaseId"
+                                        val fullUrl = viewModel.buildReportUrl(
+                                            rawBaseUrl = ownerHostingUrl,
+                                            projectId = ownerProjectId,
+                                            databaseId = ownerDatabaseId
+                                        )
                                         try {
                                             context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(fullUrl)))
                                         } catch (e: Exception) {
@@ -996,7 +998,11 @@ fun CloudHostingScreen(
                                 Button(
                                     onClick = {
                                         try {
-                                            val fullUrl = "$ownerHostingUrl?projectId=$ownerProjectId&databaseId=$ownerDatabaseId"
+                                            val fullUrl = viewModel.buildReportUrl(
+                                                rawBaseUrl = ownerHostingUrl,
+                                                projectId = ownerProjectId,
+                                                databaseId = ownerDatabaseId
+                                            )
                                             clipboardManager.setText(AnnotatedString(fullUrl))
                                             Toast.makeText(context, "Link Web Owner disalin!", Toast.LENGTH_SHORT).show()
                                         } catch (e: Exception) {
@@ -1018,9 +1024,9 @@ fun CloudHostingScreen(
                                 Button(
                                     onClick = {
                                         try {
-                                            val rulesText = "{\n  \"rules\": {\n    \"transactions\": { \".read\": \"auth != null\", \".write\": \"auth != null\" },\n    \"shift_reports\": { \".read\": \"auth != null\", \".write\": \"auth != null\" },\n    \"realtime_stats\": { \"today\": { \".read\": \"true\", \".write\": \"auth != null\" } }\n  }\n}"
+                                            val rulesText = SourceCodeTemplates.REALTIME_DATABASE_RULES
                                             clipboardManager.setText(AnnotatedString(rulesText))
-                                            Toast.makeText(context, "Aturan database.rules.json disalin!", Toast.LENGTH_SHORT).show()
+                                            Toast.makeText(context, "Aturan database.rules.json lengkap (termasuk Pengeluaran) disalin!", Toast.LENGTH_SHORT).show()
                                         } catch (e: Exception) {
                                             // Safe ignore
                                         }
@@ -1331,19 +1337,35 @@ fun CloudHostingScreen(
                                 shape = RoundedCornerShape(12.dp),
                                 color = innerDark
                             ) {
+                                val liveLocalUrl by viewModel.localWebServerUrl.collectAsState()
+                                val lanUrl = remember(liveLocalUrl) { viewModel.getLanWebUrl() }
                                 Column(modifier = Modifier.padding(14.dp)) {
                                     Text(
-                                        text = "URL Akses di Komputer / Laptop:",
+                                        text = "Server Web Lokal Aktif (Perangkat & Chrome):",
                                         fontSize = 11.sp,
                                         color = textGray
                                     )
                                     Spacer(modifier = Modifier.height(4.dp))
                                     Text(
-                                        text = "http://${roomConfig.lanIpAddress}:$lanPort",
-                                        fontSize = 14.sp,
+                                        text = liveLocalUrl ?: viewModel.defaultHostingUrl,
+                                        fontSize = 13.5.sp,
                                         fontWeight = FontWeight.Bold,
-                                        color = Color(0xFF38BDF8)
+                                        color = Color(0xFF34D399)
                                     )
+                                    if (!lanUrl.isNullOrBlank()) {
+                                        Spacer(modifier = Modifier.height(6.dp))
+                                        Text(
+                                            text = "URL Akses Wi-Fi / Komputer (LAN):",
+                                            fontSize = 11.sp,
+                                            color = textGray
+                                        )
+                                        Text(
+                                            text = lanUrl,
+                                            fontSize = 13.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = Color(0xFF38BDF8)
+                                        )
+                                    }
                                 }
                             }
                         }
@@ -1551,10 +1573,18 @@ fun SourceCodeViewerCard(
                             if (selectedSubTab == SourceCodeSubTab.ONLINE_REPORT_RTDB || selectedSubTab == SourceCodeSubTab.TUTUP_TOKO_WEB || selectedSubTab == SourceCodeSubTab.RTDB_WEB || selectedSubTab == SourceCodeSubTab.OWNER_PORTAL || selectedSubTab == SourceCodeSubTab.CUSTOMER_WEB) {
                                 Button(
                                     onClick = {
-                                        val base = if (ownerHostingUrl.startsWith("http")) {
-                                            ownerHostingUrl.removeSuffix("/").removeSuffix("/owner.html").removeSuffix("/index.html").removeSuffix("/rtdb-laporan.html").removeSuffix("/tutup-toko.html").removeSuffix("/laporan-online-rtdb.html")
+                                        val cleanInput = ownerHostingUrl.trim()
+                                        val localBase = com.example.service.LocalWebReportServer.getLocalBaseUrl()
+                                        val useLocal = cleanInput.isEmpty() ||
+                                            com.example.data.repository.FirebaseSyncRepository.isAiStudioProxyUrl(cleanInput) ||
+                                            com.example.data.repository.FirebaseSyncRepository.isLoopbackUrl(cleanInput)
+                                        val base = if (!useLocal && cleanInput.startsWith("http")) {
+                                            cleanInput.substringBefore("?").substringBefore("#").removeSuffix("/")
+                                                .removeSuffix("/owner.html").removeSuffix("/index.html")
+                                                .removeSuffix("/rtdb-laporan.html").removeSuffix("/tutup-toko.html")
+                                                .removeSuffix("/laporan-online-rtdb.html")
                                         } else {
-                                            "http://localhost:3000"
+                                            localBase
                                         }
                                         val fileName = when (selectedSubTab) {
                                             SourceCodeSubTab.ONLINE_REPORT_RTDB -> "laporan-online-rtdb.html"
@@ -1563,7 +1593,13 @@ fun SourceCodeViewerCard(
                                             SourceCodeSubTab.OWNER_PORTAL -> "owner.html"
                                             else -> "index.html"
                                         }
-                                        val urlToOpen = "$base/$fileName"
+                                        val cleanProj = if (com.example.data.repository.FirebaseSyncRepository.isPlaceholderCloudId(ownerProjectId)) {
+                                            "foodrock-report"
+                                        } else ownerProjectId.trim()
+                                        val cleanDb = if (com.example.data.repository.FirebaseSyncRepository.isPlaceholderCloudId(ownerDatabaseId)) {
+                                            "foodrock-report-default-rtdb"
+                                        } else ownerDatabaseId.trim()
+                                        val urlToOpen = "$base/$fileName?projectId=${Uri.encode(cleanProj)}&databaseId=${Uri.encode(cleanDb)}&localRelay=${Uri.encode(localBase)}"
                                         try {
                                             val intent = Intent(Intent.ACTION_VIEW, Uri.parse(urlToOpen))
                                             context.startActivity(intent)

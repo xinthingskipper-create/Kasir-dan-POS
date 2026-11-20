@@ -54,6 +54,7 @@ class PosBackgroundService : Service() {
         database = PosDatabase.getDatabase(applicationContext)
         repository = PosRepository(database)
         firebaseSyncRepository = FirebaseSyncRepository(applicationContext)
+        LocalWebReportServer.start(applicationContext, database)
         PosNotificationHelper.ensureChannels(this)
     }
 
@@ -156,22 +157,76 @@ class PosBackgroundService : Service() {
             periodicSyncJob = serviceScope.launch {
                 while (true) {
                     try {
-                        delay(30_000L)
+                        delay(15_000L)
                         val prefs = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
                         val dbId = prefs.getString("KEY_FIREBASE_DATABASE_ID", "foodrock-report-default-rtdb")
                             ?: "foodrock-report-default-rtdb"
+                        val projId = prefs.getString("KEY_FIREBASE_PROJECT_ID", "foodrock-report")
+                            ?: "foodrock-report"
+                        val rawHostUrl = prefs.getString("KEY_WEB_HOSTING_URL", "")
+                        val hostUrl = if (rawHostUrl.isNullOrBlank() || FirebaseSyncRepository.isAiStudioProxyUrl(rawHostUrl)) {
+                            LocalWebReportServer.getLocalBaseUrl()
+                        } else {
+                            rawHostUrl.trim()
+                        }
 
                         // 1. Sync pending transactions in background
                         val pending = repository.getUnsyncedTransactionsList()
                         for (trx in pending) {
                             val items = repository.getItemsForTransaction(trx.id)
-                            val ok = firebaseSyncRepository.syncTransaction(trx, items, databaseId = dbId)
+                            val ok = firebaseSyncRepository.syncTransaction(
+                                trx,
+                                items,
+                                databaseId = dbId,
+                                projectId = projId,
+                                hostingUrl = hostUrl
+                            )
                             if (ok) {
                                 repository.updateSyncStatus(trx.id, isSynced = true, syncedAt = System.currentTimeMillis(), error = null)
                             }
                         }
 
-                        // 2. Check date rollover in background so midnight reset & daily archive happen automatically
+                        // 1B. Retry pending OR not-yet-remote-synced expenses in background
+                        val pendingExpRaw = prefs.getString("KEY_PENDING_EXPENSE_IDS", "") ?: ""
+                        val pendingExpIds = pendingExpRaw.split(",").mapNotNull { it.trim().toLongOrNull() }.toMutableSet()
+                        val syncedExpRaw = prefs.getString("KEY_SYNCED_EXPENSE_IDS", "") ?: ""
+                        val syncedExpIds = syncedExpRaw.split(",").mapNotNull { it.trim().toLongOrNull() }.toMutableSet()
+                        val remoteExpRaw = prefs.getString("KEY_SYNCED_REMOTE_EXPENSE_IDS", "") ?: ""
+                        val remoteExpIds = remoteExpRaw.split(",").mapNotNull { it.trim().toLongOrNull() }.toMutableSet()
+
+                        val allExps = repository.getExpensesBetweenList(0L, System.currentTimeMillis() + 86_400_000L)
+                        val expTargets = allExps.filter { it.id in pendingExpIds || it.id !in syncedExpIds || it.id !in remoteExpIds }
+                        if (expTargets.isNotEmpty()) {
+                            var prefsChanged = false
+                            for (exp in expTargets) {
+                                val res = firebaseSyncRepository.syncExpenseDetailed(
+                                    exp,
+                                    databaseId = dbId,
+                                    projectId = projId,
+                                    hostingUrl = hostUrl
+                                )
+                                if (res.anyOk) {
+                                    if (pendingExpIds.remove(exp.id)) prefsChanged = true
+                                    if (syncedExpIds.add(exp.id)) prefsChanged = true
+                                    if (res.remoteOk && remoteExpIds.add(exp.id)) prefsChanged = true
+                                }
+                            }
+                            if (prefsChanged) {
+                                prefs.edit()
+                                    .putString("KEY_PENDING_EXPENSE_IDS", pendingExpIds.joinToString(","))
+                                    .putString("KEY_SYNCED_EXPENSE_IDS", syncedExpIds.joinToString(","))
+                                    .putString("KEY_SYNCED_REMOTE_EXPENSE_IDS", remoteExpIds.joinToString(","))
+                                    .apply()
+                            }
+                        }
+
+                        // 2. Jalankan Tutup Toko Otomatis Terjadwal jika jam tutup telah tiba
+                        AutoStoreCloseManager.executeScheduledStoreClosing(
+                            context = applicationContext,
+                            triggeredByAlarm = false
+                        )
+
+                        // 3. Check date rollover in background so midnight reset happens automatically
                         checkBackgroundDateRollover(prefs, dbId)
                     } catch (t: Throwable) {
                         Log.w(TAG, "Periodic background sync error: ${t.message}")
@@ -183,7 +238,7 @@ class PosBackgroundService : Service() {
 
     private suspend fun checkBackgroundDateRollover(prefs: android.content.SharedPreferences, dbId: String) {
         try {
-            val dateFormat = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.getDefault())
+            val dateFormat = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US)
             val currentDateStr = dateFormat.format(java.util.Date())
             val lastDateStr = prefs.getString("KEY_LAST_ACTIVE_DATE", "") ?: ""
 
@@ -234,12 +289,22 @@ class PosBackgroundService : Service() {
 
     private fun updateOngoingNotification(lowCount: Int, outCount: Int) {
         try {
+            val prefs = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            val autoCloseEnabled = prefs.getBoolean(AutoStoreCloseManager.KEY_AUTO_CLOSE_ENABLED, false)
+            val syncSummary = if (autoCloseEnabled) {
+                val h = prefs.getInt(AutoStoreCloseManager.KEY_AUTO_CLOSE_HOUR, AutoStoreCloseManager.DEFAULT_HOUR)
+                val m = prefs.getInt(AutoStoreCloseManager.KEY_AUTO_CLOSE_MINUTE, AutoStoreCloseManager.DEFAULT_MINUTE)
+                "Auto tutup ${AutoStoreCloseManager.formatTime(h, m)} • Sinkron aktif"
+            } else {
+                "Pemantauan stok & sinkron aktif"
+            }
             val nm = getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager ?: return
             val updated = PosNotificationHelper.buildForegroundServiceNotification(
                 context = this,
                 storeName = cachedStoreName,
                 lowStockCount = lowCount,
-                outOfStockCount = outCount
+                outOfStockCount = outCount,
+                syncSummary = syncSummary
             )
             nm.notify(PosNotificationHelper.NOTIFICATION_ID_FOREGROUND, updated)
         } catch (_: Throwable) {

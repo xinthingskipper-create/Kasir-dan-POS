@@ -99,4 +99,16 @@ interface TransactionDao {
 
     @Query("UPDATE transactions SET isSynced = 1, syncedAt = :syncedAt, syncError = NULL WHERE invoiceNumber = :invoiceNumber")
     suspend fun markAsSynced(invoiceNumber: String, syncedAt: Long = System.currentTimeMillis())
+
+    @Query("DELETE FROM transaction_items WHERE transactionId IN (SELECT id FROM transactions WHERE timestamp >= :startTime AND timestamp <= :endTime)")
+    suspend fun deleteTransactionItemsBetween(startTime: Long, endTime: Long)
+
+    @Query("DELETE FROM transactions WHERE timestamp >= :startTime AND timestamp <= :endTime")
+    suspend fun deleteTransactionsBetween(startTime: Long, endTime: Long)
+
+    @Query("DELETE FROM transaction_items WHERE transactionId = :transactionId")
+    suspend fun deleteItemsByTransactionId(transactionId: Long)
+
+    @Query("DELETE FROM transactions WHERE id = :transactionId")
+    suspend fun deleteTransactionById(transactionId: Long)
 }

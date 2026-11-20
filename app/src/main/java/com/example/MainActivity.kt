@@ -45,11 +45,19 @@ class MainActivity : ComponentActivity() {
                     val currentUser by viewModel.currentUser.collectAsState()
 
                     LaunchedEffect(pendingOpenTab, currentUser) {
-                        if (pendingOpenTab == PosNotificationHelper.TAB_INVENTORY && currentUser != null) {
-                            if (currentUser?.role == UserRole.ADMIN) {
-                                viewModel.selectTab(MainTab.INVENTORY)
+                        if (currentUser != null) {
+                            when (pendingOpenTab) {
+                                PosNotificationHelper.TAB_INVENTORY -> {
+                                    if (currentUser?.role == UserRole.ADMIN) {
+                                        viewModel.selectTab(MainTab.INVENTORY)
+                                    }
+                                    pendingOpenTab = null
+                                }
+                                PosNotificationHelper.TAB_REPORT -> {
+                                    viewModel.selectTab(MainTab.REPORT)
+                                    pendingOpenTab = null
+                                }
                             }
-                            pendingOpenTab = null
                         }
                     }
 

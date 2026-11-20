@@ -18,6 +18,9 @@ class PosBootReceiver : BroadcastReceiver() {
                 if (enabled) {
                     PosBackgroundService.start(context)
                 }
+                if (prefs.getBoolean(AutoStoreCloseManager.KEY_AUTO_CLOSE_ENABLED, false)) {
+                    AutoStoreCloseManager.scheduleNextAlarm(context)
+                }
             } catch (t: Throwable) {
                 Log.w("PosBootReceiver", "Unable to start foreground service on boot: ${t.message}")
             }

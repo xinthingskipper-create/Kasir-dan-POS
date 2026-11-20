@@ -58,6 +58,7 @@ enum class Screen {
 enum class MainTab(val title: String) {
     POS("Kasir"),
     INVENTORY("Inventaris"),
+    EXPENSES("Pengeluaran"),
     REPORT("Laporan"),
     USERS("Karyawan"),
     PRINTER("Printer"),
@@ -68,6 +69,7 @@ enum class MainTab(val title: String) {
 enum class DateFilter(val label: String) {
     TODAY("Hari Ini"),
     YESTERDAY("Kemarin"),
+    CUSTOM_DATE("Pilih Tanggal"),
     LAST_7_DAYS("7 Hari"),
     THIS_MONTH("Bulan Ini"),
     ALL("Semua")
@@ -99,15 +101,50 @@ class PosViewModel(application: Application) : AndroidViewModel(application) {
 
     val defaultFirebaseProjectId: String = "foodrock-report"
     val defaultDatabaseId: String = "foodrock-report-default-rtdb"
-    val defaultHostingUrl: String = "https://ais-dev-wgdowcmyzzxhdk2ko2iu46-852851605479.asia-southeast1.run.app"
+
+    val localWebServerUrl: StateFlow<String?> = com.example.service.LocalWebReportServer.serverUrlFlow
+
+    val defaultHostingUrl: String
+        get() = com.example.service.LocalWebReportServer.serverUrlFlow.value ?: "http://127.0.0.1:8080/owner.html"
+
+    fun getLanWebUrl(): String? = com.example.service.LocalWebReportServer.getLanBaseUrl()?.let { "$it/owner.html" }
+
+    fun resolveEffectiveHostingUrl(rawUrl: String? = null): String {
+        val candidate = (rawUrl ?: _webDashboardUrl.value).trim()
+        if (candidate.isEmpty() ||
+            FirebaseSyncRepository.isAiStudioProxyUrl(candidate) ||
+            candidate.contains("localhost:3000", ignoreCase = true) ||
+            candidate.contains("127.0.0.1:3000", ignoreCase = true)
+        ) {
+            return defaultHostingUrl
+        }
+        // Rewrite stale loopback host/port (e.g. http://127.0.0.1:8080/owner.html when bound on :8765)
+        if (FirebaseSyncRepository.isLoopbackUrl(candidate) && com.example.service.LocalWebReportServer.isRunning()) {
+            val activeBase = com.example.service.LocalWebReportServer.getLocalBaseUrl().trimEnd('/')
+            val withoutScheme = candidate.substringAfter("://", candidate)
+            val slashIdx = withoutScheme.indexOf('/')
+            val suffix = if (slashIdx >= 0) withoutScheme.substring(slashIdx) else "/owner.html"
+            return "$activeBase$suffix"
+        }
+        return candidate
+    }
 
     private val savedProjectId = prefs.getString("KEY_FIREBASE_PROJECT_ID", null)?.let {
-        if (it.contains("gen-lang-client")) defaultFirebaseProjectId else it
+        if (FirebaseSyncRepository.isPlaceholderCloudId(it)) defaultFirebaseProjectId else it.trim()
     } ?: defaultFirebaseProjectId
 
     private val savedDatabaseId = prefs.getString("KEY_FIREBASE_DATABASE_ID", null)?.let {
-        if (it.contains("ai-studio-android-kasirpos") || it.isBlank()) defaultDatabaseId else it
+        if (FirebaseSyncRepository.isPlaceholderCloudId(it)) defaultDatabaseId else it.trim()
     } ?: defaultDatabaseId
+
+    private val initialRawHostUrl = prefs.getString("KEY_WEB_HOSTING_URL", null)
+    private val _webDashboardUrl = MutableStateFlow(
+        if (initialRawHostUrl.isNullOrBlank() || FirebaseSyncRepository.isAiStudioProxyUrl(initialRawHostUrl)) {
+            "http://127.0.0.1:8080/owner.html"
+        } else {
+            initialRawHostUrl.trim()
+        }
+    )
 
     private val _firebaseProjectId = MutableStateFlow(savedProjectId)
     val firebaseProjectId: StateFlow<String> = _firebaseProjectId.asStateFlow()
@@ -115,19 +152,58 @@ class PosViewModel(application: Application) : AndroidViewModel(application) {
     private val _firebaseDatabaseId = MutableStateFlow(savedDatabaseId)
     val firebaseDatabaseId: StateFlow<String> = _firebaseDatabaseId.asStateFlow()
 
-    private val _webDashboardUrl = MutableStateFlow(
-        prefs.getString("KEY_WEB_HOSTING_URL", defaultHostingUrl)?.ifBlank { defaultHostingUrl }
-            ?: defaultHostingUrl
-    )
     val webDashboardUrl: StateFlow<String> = _webDashboardUrl.asStateFlow()
 
     val currentWebDashboardUrl: String
-        get() = _webDashboardUrl.value
+        get() = resolveEffectiveHostingUrl(_webDashboardUrl.value)
+
+    fun buildReportUrl(
+        rawBaseUrl: String? = null,
+        projectId: String? = null,
+        databaseId: String? = null,
+        view: String? = null,
+        dateMillis: Long? = null
+    ): String {
+        com.example.service.LocalWebReportServer.start(getApplication(), database)
+        val rawResolved = resolveEffectiveHostingUrl(rawBaseUrl ?: webDashboardUrl.value).trimEnd('/')
+        val baseUrl = if (!rawResolved.endsWith(".html", ignoreCase = true) && !rawResolved.contains("?")) {
+            "$rawResolved/owner.html"
+        } else {
+            rawResolved
+        }
+        val projId = (projectId ?: firebaseProjectId.value).trim().let {
+            if (FirebaseSyncRepository.isPlaceholderCloudId(it)) defaultFirebaseProjectId else it
+        }
+        val dbId = (databaseId ?: firebaseDatabaseId.value).trim().let {
+            if (FirebaseSyncRepository.isPlaceholderCloudId(it)) defaultDatabaseId else it
+        }
+        val localRelay = com.example.service.LocalWebReportServer.getLocalBaseUrl()
+        val sep = if (baseUrl.contains("?")) "&" else "?"
+        val viewParam = if (!view.isNullOrBlank()) "&view=${Uri.encode(view)}" else ""
+        val dateParam = dateMillis?.let { millis ->
+            val dateStr = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US).format(java.util.Date(millis))
+            "&date=${Uri.encode(dateStr)}"
+        }.orEmpty()
+        return "$baseUrl${sep}projectId=${Uri.encode(projId)}&databaseId=${Uri.encode(dbId)}&localRelay=${Uri.encode(localRelay)}$viewParam$dateParam"
+    }
+
+    fun buildChromeWebReportUrl(view: String? = null, dateMillis: Long? = null): String =
+        buildReportUrl(
+            rawBaseUrl = webDashboardUrl.value,
+            projectId = null,
+            databaseId = null,
+            view = view,
+            dateMillis = dateMillis
+        )
 
     fun updateWebHostingConfig(projectId: String, databaseId: String, hostingUrl: String) {
-        val cleanPid = projectId.trim().ifBlank { defaultFirebaseProjectId }
-        val cleanDbId = databaseId.trim().ifBlank { defaultDatabaseId }
-        val cleanUrl = hostingUrl.trim().ifBlank { "https://$cleanPid.web.app" }
+        val cleanPid = projectId.trim().let {
+            if (FirebaseSyncRepository.isPlaceholderCloudId(it)) defaultFirebaseProjectId else it
+        }
+        val cleanDbId = databaseId.trim().let {
+            if (FirebaseSyncRepository.isPlaceholderCloudId(it)) defaultDatabaseId else it
+        }
+        val cleanUrl = resolveEffectiveHostingUrl(hostingUrl)
 
         _firebaseProjectId.value = cleanPid
         _firebaseDatabaseId.value = cleanDbId
@@ -183,6 +259,78 @@ class PosViewModel(application: Application) : AndroidViewModel(application) {
 
     val isBackgroundServiceRunning: StateFlow<Boolean> = com.example.service.PosBackgroundService.isRunning
 
+    // --- Pengaturan Tutup Toko Otomatis Terjadwal ---
+    private val _isAutoCloseEnabled = MutableStateFlow(
+        prefs.getBoolean(com.example.service.AutoStoreCloseManager.KEY_AUTO_CLOSE_ENABLED, false)
+    )
+    val isAutoCloseEnabled: StateFlow<Boolean> = _isAutoCloseEnabled.asStateFlow()
+
+    private val _autoCloseHour = MutableStateFlow(
+        prefs.getInt(
+            com.example.service.AutoStoreCloseManager.KEY_AUTO_CLOSE_HOUR,
+            com.example.service.AutoStoreCloseManager.DEFAULT_HOUR
+        ).coerceIn(0, 23)
+    )
+    val autoCloseHour: StateFlow<Int> = _autoCloseHour.asStateFlow()
+
+    private val _autoCloseMinute = MutableStateFlow(
+        prefs.getInt(
+            com.example.service.AutoStoreCloseManager.KEY_AUTO_CLOSE_MINUTE,
+            com.example.service.AutoStoreCloseManager.DEFAULT_MINUTE
+        ).coerceIn(0, 59)
+    )
+    val autoCloseMinute: StateFlow<Int> = _autoCloseMinute.asStateFlow()
+
+    private val _lastAutoCloseStatus = MutableStateFlow(
+        prefs.getString(com.example.service.AutoStoreCloseManager.KEY_LAST_AUTO_CLOSE_STATUS, "") ?: ""
+    )
+    val lastAutoCloseStatus: StateFlow<String> = _lastAutoCloseStatus.asStateFlow()
+
+    fun setAutoCloseSchedule(
+        enabled: Boolean,
+        hour: Int = _autoCloseHour.value,
+        minute: Int = _autoCloseMinute.value
+    ) {
+        val cleanHour = hour.coerceIn(0, 23)
+        val cleanMinute = minute.coerceIn(0, 59)
+        _isAutoCloseEnabled.value = enabled
+        _autoCloseHour.value = cleanHour
+        _autoCloseMinute.value = cleanMinute
+
+        prefs.edit()
+            .putBoolean(com.example.service.AutoStoreCloseManager.KEY_AUTO_CLOSE_ENABLED, enabled)
+            .putInt(com.example.service.AutoStoreCloseManager.KEY_AUTO_CLOSE_HOUR, cleanHour)
+            .putInt(com.example.service.AutoStoreCloseManager.KEY_AUTO_CLOSE_MINUTE, cleanMinute)
+            .putLong(com.example.service.AutoStoreCloseManager.KEY_AUTO_CLOSE_CONFIGURED_AT, System.currentTimeMillis())
+            .apply()
+
+        val appContext = getApplication<Application>()
+        if (enabled) {
+            com.example.service.PosNotificationHelper.ensureChannels(appContext)
+            com.example.service.AutoStoreCloseManager.scheduleNextAlarm(appContext)
+            if (!_isBackgroundServiceEnabled.value) {
+                setBackgroundServiceEnabled(true)
+            } else {
+                com.example.service.PosBackgroundService.start(appContext)
+            }
+        } else {
+            com.example.service.AutoStoreCloseManager.cancelAlarm(appContext)
+            if (_isBackgroundServiceEnabled.value) {
+                com.example.service.PosBackgroundService.start(appContext)
+            }
+        }
+    }
+
+    fun getNextAutoCloseDescription(): String {
+        val lastDate = prefs.getString(com.example.service.AutoStoreCloseManager.KEY_LAST_AUTO_CLOSE_DATE, "") ?: ""
+        return com.example.service.AutoStoreCloseManager.formatNextScheduleDescription(
+            enabled = _isAutoCloseEnabled.value,
+            hour = _autoCloseHour.value,
+            minute = _autoCloseMinute.value,
+            lastAutoCloseDate = lastDate
+        )
+    }
+
     fun setBackgroundServiceEnabled(enabled: Boolean) {
         _isBackgroundServiceEnabled.value = enabled
         prefs.edit().putBoolean(com.example.service.PosBackgroundService.KEY_BG_SERVICE_ENABLED, enabled).apply()
@@ -207,6 +355,9 @@ class PosViewModel(application: Application) : AndroidViewModel(application) {
         com.example.service.PosNotificationHelper.ensureChannels(appContext)
         if (_isBackgroundServiceEnabled.value && !com.example.service.PosBackgroundService.isRunning.value) {
             com.example.service.PosBackgroundService.start(appContext)
+        }
+        if (_isAutoCloseEnabled.value) {
+            com.example.service.AutoStoreCloseManager.scheduleNextAlarm(appContext)
         }
         if (_isLowStockNotifEnabled.value) {
             checkLowStockAndNotify(forceAlert = false)
@@ -255,6 +406,31 @@ class PosViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     init {
+        com.example.service.LocalWebReportServer.start(application, database)
+        _webDashboardUrl.value = resolveEffectiveHostingUrl(_webDashboardUrl.value)
+
+        viewModelScope.launch(coroutineExceptionHandler) {
+            com.example.service.LocalWebReportServer.serverUrlFlow.collect { url ->
+                if (!url.isNullOrBlank()) {
+                    _webDashboardUrl.value = resolveEffectiveHostingUrl(_webDashboardUrl.value)
+                }
+            }
+        }
+
+        if (_isAutoCloseEnabled.value) {
+            com.example.service.AutoStoreCloseManager.scheduleNextAlarm(application)
+        }
+        viewModelScope.launch(coroutineExceptionHandler) {
+            com.example.service.AutoStoreCloseManager.lastAutoCloseEventMillis.collect { ts ->
+                if (ts > 0L) {
+                    _lastAutoCloseStatus.value = prefs.getString(
+                        com.example.service.AutoStoreCloseManager.KEY_LAST_AUTO_CLOSE_STATUS,
+                        ""
+                    ) ?: ""
+                    refreshReportData()
+                }
+            }
+        }
         viewModelScope.launch(coroutineExceptionHandler) {
             com.example.service.PosBackgroundService.userStoppedFromNotif.collect { ts ->
                 if (ts > 0L) {
@@ -280,9 +456,13 @@ class PosViewModel(application: Application) : AndroidViewModel(application) {
             try {
                 repository.getCloudHostingConfig().collect { config ->
                     if (config != null) {
-                        _firebaseProjectId.value = config.ownerProjectId
-                        _firebaseDatabaseId.value = config.ownerDatabaseId
-                        _webDashboardUrl.value = config.ownerHostingUrl
+                        if (!FirebaseSyncRepository.isPlaceholderCloudId(config.ownerProjectId)) {
+                            _firebaseProjectId.value = config.ownerProjectId.trim()
+                        }
+                        if (!FirebaseSyncRepository.isPlaceholderCloudId(config.ownerDatabaseId)) {
+                            _firebaseDatabaseId.value = config.ownerDatabaseId.trim()
+                        }
+                        _webDashboardUrl.value = resolveEffectiveHostingUrl(config.ownerHostingUrl)
                     }
                 }
             } catch (e: Throwable) {
@@ -293,17 +473,19 @@ class PosViewModel(application: Application) : AndroidViewModel(application) {
             try {
                 kotlinx.coroutines.delay(2500)
                 syncPendingTransactionsInternal()
+                syncPendingExpensesInternal()
             } catch (e: Throwable) {
                 // Ignore transient initial sync errors
             }
         }
-        // Recurring Background Synchronization Engine (checks pending transactions safely every 25s)
+        // Recurring Background Synchronization Engine (checks pending transactions & expenses every 25s)
         viewModelScope.launch(coroutineExceptionHandler) {
             while (true) {
                 try {
                     kotlinx.coroutines.delay(25000)
                     if (_isAutoSyncActive.value && !_isCloudSyncing.value) {
                         syncPendingTransactionsInternal()
+                        syncPendingExpensesInternal()
                     }
                 } catch (e: Throwable) {
                     // Ignore periodic background sync error
@@ -341,6 +523,9 @@ class PosViewModel(application: Application) : AndroidViewModel(application) {
         if (tab == MainTab.REPORT) {
             checkDateRolloverAndAutoArchive()
             refreshReportData()
+            syncExpensesForTransactionReportAuto(forceAll = false)
+        } else if (tab == MainTab.EXPENSES) {
+            syncExpensesForTransactionReportAuto(forceAll = false)
         }
     }
 
@@ -463,10 +648,12 @@ class PosViewModel(application: Application) : AndroidViewModel(application) {
             )
             repository.updateStoreProfile(updated)
 
-            // Also sync store profile to Firebase Realtime Database
+            // Also sync store profile to Firebase Realtime Database & Hosting Relay
             try {
                 val dbId = firebaseDatabaseId.value
-                firebaseSyncRepository.syncStoreProfile(updated, databaseId = dbId)
+                val projId = firebaseProjectId.value
+                val hostUrl = webDashboardUrl.value
+                firebaseSyncRepository.syncStoreProfile(updated, databaseId = dbId, projectId = projId, hostingUrl = hostUrl)
             } catch (t: Throwable) {
                 Log.w("PosViewModel", "Failed to sync store profile to RTDB: ${t.message}")
             }
@@ -518,12 +705,30 @@ class PosViewModel(application: Application) : AndroidViewModel(application) {
         if (printReceipt) {
             printerManager.printShiftClosing(storeProfile.value, closingWithId)
         }
+
+        // Kirim notifikasi langsung saat Tutup Toko ditekan
+        com.example.service.PosNotificationHelper.notifyStoreClosed(
+            context = getApplication(),
+            storeName = storeProfile.value.storeName,
+            totalRevenue = totalRevenue,
+            totalTransactions = totalCount,
+            totalCash = totalCash,
+            totalNonCash = totalNonCash,
+            cashierName = user.fullName,
+            isAutomatic = false,
+            cloudSynced = null,
+            onlyAlertOnce = false
+        )
+
         // Sinkronisasi otomatis ke Database Cloud untuk SEMUA TRANSAKSI & LAPORAN TUTUP KASIR
         viewModelScope.launch(Dispatchers.IO + coroutineExceptionHandler) {
             _isCloudSyncing.value = true
-            _lastSyncStatus.value = "☁️ Tutup Kasir: Menyinkronkan seluruh transaksi shift ke Database..."
+            _lastSyncStatus.value = "☁️ Tutup Toko: Menyinkronkan seluruh transaksi & laporan ke Database..."
+            var syncCompletedOk = false
             try {
                 val dbId = firebaseDatabaseId.value
+                val projId = firebaseProjectId.value
+                val hostUrl = resolveEffectiveHostingUrl(webDashboardUrl.value)
 
                 // 1. Ambil semua transaksi shift hari ini dan transaksi pending yang belum tersinkron
                 val unsyncedList = try {
@@ -538,7 +743,13 @@ class PosViewModel(application: Application) : AndroidViewModel(application) {
                 for (trx in allTrxToSync) {
                     try {
                         val items = repository.getItemsForTransaction(trx.id)
-                        val ok = firebaseSyncRepository.syncTransaction(trx, items, databaseId = dbId)
+                        val ok = firebaseSyncRepository.syncTransaction(
+                            trx,
+                            items,
+                            databaseId = dbId,
+                            projectId = projId,
+                            hostingUrl = hostUrl
+                        )
                         if (ok) {
                             syncedTrxCount++
                             repository.updateSyncStatus(
@@ -573,10 +784,22 @@ class PosViewModel(application: Application) : AndroidViewModel(application) {
                     "${exp.title} [${exp.category}]: Rp ${String.format(java.util.Locale("id", "ID"), "%,.0f", exp.amount)}$notePart"
                 }
 
-                // Sinkronkan pengeluaran hari ini agar lengkap di Web Laporan Chrome
+                // Sinkronkan pengeluaran hari ini agar lengkap di Realtime Database & Web Laporan Chrome
                 for (exp in todayExpenses) {
                     try {
-                        firebaseSyncRepository.syncExpense(exp, databaseId = dbId)
+                        val expRes = firebaseSyncRepository.syncExpenseDetailed(
+                            exp,
+                            databaseId = dbId,
+                            projectId = projId,
+                            hostingUrl = hostUrl
+                        )
+                        if (expRes.anyOk) {
+                            clearExpensePending(exp.id)
+                            markExpenseSynced(exp.id)
+                            if (expRes.remoteOk) {
+                                markExpenseRemoteSynced(exp.id)
+                            }
+                        }
                     } catch (_: Throwable) {
                     }
                 }
@@ -586,46 +809,67 @@ class PosViewModel(application: Application) : AndroidViewModel(application) {
                     closing = closingWithId,
                     databaseId = dbId,
                     totalExpenses = totalExpenses,
-                    expenseNotes = expenseNotesSummary
+                    expenseNotes = expenseNotesSummary,
+                    projectId = projId,
+                    hostingUrl = hostUrl,
+                    expensesList = todayExpenses
                 )
 
                 // 3. Sinkronkan Profil Toko
                 try {
                     val profile = repository.getStoreProfileSync()
-                    firebaseSyncRepository.syncStoreProfile(profile, databaseId = dbId)
+                    firebaseSyncRepository.syncStoreProfile(profile, databaseId = dbId, projectId = projId, hostingUrl = hostUrl)
                 } catch (tProf: Throwable) {
                     // safe ignore
                 }
 
                 // 4. Kirim Arsip Laporan Harian ke Database Online (HANYA SAAT TUTUP TOKO DITEKAN)
+                var dailyReportSynced = false
                 try {
-                    val dateFormat = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.getDefault())
+                    val dateFormat = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US)
                     val todayStr = dateFormat.format(java.util.Date())
                     val dailyRep = repository.getDailyReportByDateDirect(todayStr)
                     if (dailyRep != null) {
-                        val dOk = firebaseSyncRepository.syncDailyReport(
+                        dailyReportSynced = firebaseSyncRepository.syncDailyReport(
                             dailyReport = dailyRep,
                             databaseId = dbId,
                             totalExpenses = totalExpenses,
-                            expenseNotes = expenseNotesSummary
+                            expenseNotes = expenseNotesSummary,
+                            projectId = projId,
+                            hostingUrl = hostUrl,
+                            expensesList = todayExpenses
                         )
-                        if (dOk) repository.markDailyReportAsSynced(todayStr)
+                        if (dailyReportSynced) repository.markDailyReportAsSynced(todayStr)
                     }
                 } catch (tDaily: Throwable) {
                     Log.w("PosViewModel", "Daily report sync note: ${tDaily.message}")
                 }
 
-                val statusMessage = if (syncedTrxCount > 0 || shiftSyncSuccess) {
-                    "☁️ Tutup Kasir Berhasil! $syncedTrxCount transaksi & laporan shift #${closingWithId.id} otomatis tersinkron ke Cloud Database!"
+                syncCompletedOk = dailyReportSynced || shiftSyncSuccess
+
+                val statusMessage = if (syncedTrxCount > 0 || shiftSyncSuccess || dailyReportSynced) {
+                    "☁️ Tutup Toko Berhasil! $syncedTrxCount transaksi & laporan shift #${closingWithId.id} otomatis tersinkron ke Cloud Database!"
                 } else {
-                    "Laporan tutup kasir & transaksi tersimpan aman offline di Room DB."
+                    "Laporan tutup toko & transaksi tersimpan aman offline di Room DB."
                 }
                 _lastSyncStatus.value = statusMessage
                 Log.i("PosViewModel", statusMessage)
             } catch (t: Throwable) {
                 Log.e("PosViewModel", "Error in automatic shift transactions sync", t)
-                _lastSyncStatus.value = "Tutup kasir tersimpan lokal di Room DB (offline)"
+                _lastSyncStatus.value = "Tutup toko tersimpan lokal di Room DB (offline)"
             } finally {
+                com.example.service.PosNotificationHelper.notifyStoreClosed(
+                    context = getApplication(),
+                    storeName = storeProfile.value.storeName,
+                    totalRevenue = totalRevenue,
+                    totalTransactions = totalCount,
+                    totalCash = totalCash,
+                    totalNonCash = totalNonCash,
+                    cashierName = user.fullName,
+                    isAutomatic = false,
+                    cloudSynced = syncCompletedOk,
+                    onlyAlertOnce = true
+                )
                 _isCloudSyncing.value = false
             }
         }
@@ -639,7 +883,7 @@ class PosViewModel(application: Application) : AndroidViewModel(application) {
         totalProfit: Double
     ): String {
         val profile = storeProfile.value
-        val dateLabel = selectedDateFilter.value.label
+        val dateLabel = getActiveReportPeriodLabel()
         val totalRevenue = transactions.sumOf { it.grandTotal }
         val totalCount = transactions.size
         val avgTicket = if (totalCount > 0) totalRevenue / totalCount else 0.0
@@ -907,12 +1151,20 @@ class PosViewModel(application: Application) : AndroidViewModel(application) {
             // Cek dan kirim push notifikasi jika stok makanan/minuman menipis atau habis
             checkLowStockAndNotify(forceAlert = false)
 
-            // Automatic Sync to Cloud Database (asynchronous in background on IO)
+            // Automatic Sync to Cloud Database & Web Chrome Relay (asynchronous in background on IO)
             val itemsForSync = transactionItems.map { it.copy(transactionId = newTrxId) }
             val dbId = firebaseDatabaseId.value
+            val projId = firebaseProjectId.value
+            val hostUrl = resolveEffectiveHostingUrl(webDashboardUrl.value)
             viewModelScope.launch(Dispatchers.IO) {
                 try {
-                    val syncSuccess = firebaseSyncRepository.syncTransaction(completedTrx, itemsForSync, databaseId = dbId)
+                    val syncSuccess = firebaseSyncRepository.syncTransaction(
+                        completedTrx,
+                        itemsForSync,
+                        databaseId = dbId,
+                        projectId = projId,
+                        hostingUrl = hostUrl
+                    )
                     if (syncSuccess) {
                         repository.updateSyncStatus(newTrxId, isSynced = true, syncedAt = System.currentTimeMillis(), error = null)
                         _lastSyncStatus.value = "⚡ Transaksi ${completedTrx.invoiceNumber} otomatis tersinkron ke Cloud!"
@@ -920,6 +1172,7 @@ class PosViewModel(application: Application) : AndroidViewModel(application) {
                         repository.updateSyncStatus(newTrxId, isSynced = false, syncedAt = null, error = "Tersimpan offline di Room DB")
                         _lastSyncStatus.value = "Tersimpan offline di Room DB (menunggu sinkron)"
                     }
+                    syncPendingExpensesInternal()
                 } catch (e: Exception) {
                     repository.updateSyncStatus(newTrxId, isSynced = false, syncedAt = null, error = e.localizedMessage)
                     _lastSyncStatus.value = "Tersimpan offline di Room DB (menunggu sinkron)"
@@ -932,13 +1185,100 @@ class PosViewModel(application: Application) : AndroidViewModel(application) {
     private val _selectedDateFilter = MutableStateFlow(DateFilter.TODAY)
     val selectedDateFilter: StateFlow<DateFilter> = _selectedDateFilter.asStateFlow()
 
+    private val _selectedCustomDateMillis = MutableStateFlow(getStartOfDay(0))
+    val selectedCustomDateMillis: StateFlow<Long> = _selectedCustomDateMillis.asStateFlow()
+
+    val activeReportPeriodLabel: StateFlow<String> = combine(_selectedDateFilter, _selectedCustomDateMillis) { filter, customMillis ->
+        formatPeriodLabel(filter, customMillis)
+    }.stateIn(
+        viewModelScope,
+        SharingStarted.Eagerly,
+        formatPeriodLabel(DateFilter.TODAY, getStartOfDay(0))
+    )
+
     fun setDateFilter(filter: DateFilter) {
         _selectedDateFilter.value = filter
+        when (filter) {
+            DateFilter.TODAY -> _selectedCustomDateMillis.value = getStartOfDay(0)
+            DateFilter.YESTERDAY -> _selectedCustomDateMillis.value = getStartOfDay(-1)
+            else -> Unit
+        }
         refreshReportData()
+    }
+
+    fun setCustomDate(dateMillis: Long, isUtcPickerMillis: Boolean = true) {
+        val rawLocalStart = if (isUtcPickerMillis) {
+            normalizeUtcDatePickerMillisToLocalStartOfDay(dateMillis)
+        } else {
+            getStartOfDayForMillis(dateMillis)
+        }
+        val todayStart = getStartOfDay(0)
+        val yesterdayStart = getStartOfDay(-1)
+        val clampedStart = if (rawLocalStart > todayStart) todayStart else rawLocalStart
+
+        _selectedCustomDateMillis.value = clampedStart
+        _selectedDateFilter.value = when (clampedStart) {
+            todayStart -> DateFilter.TODAY
+            yesterdayStart -> DateFilter.YESTERDAY
+            else -> DateFilter.CUSTOM_DATE
+        }
+        refreshReportData()
+    }
+
+    fun stepSelectedDate(dayDelta: Int) {
+        val baseMillis = when (_selectedDateFilter.value) {
+            DateFilter.TODAY -> getStartOfDay(0)
+            DateFilter.YESTERDAY -> getStartOfDay(-1)
+            DateFilter.CUSTOM_DATE -> _selectedCustomDateMillis.value
+            else -> _selectedCustomDateMillis.value
+        }
+        val cal = Calendar.getInstance().apply {
+            timeInMillis = baseMillis
+            add(Calendar.DAY_OF_YEAR, dayDelta)
+        }
+        setCustomDate(cal.timeInMillis, isUtcPickerMillis = false)
+    }
+
+    fun getActiveReportPeriodLabel(): String {
+        return formatPeriodLabel(_selectedDateFilter.value, _selectedCustomDateMillis.value)
     }
 
     private val _reportStartTime = MutableStateFlow(getStartOfDay(0))
     private val _reportEndTime = MutableStateFlow(getEndOfDay(0))
+
+    val allTransactionsHistory: StateFlow<List<Transaction>> = repository.getAllTransactions()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    fun deleteTransactionsForPeriod(
+        startTime: Long,
+        endTime: Long,
+        onResult: ((Boolean) -> Unit)? = null
+    ) {
+        viewModelScope.launch(Dispatchers.IO + coroutineExceptionHandler) {
+            try {
+                repository.deleteTransactionsBetween(startTime, endTime)
+                withContext(Dispatchers.Main) { onResult?.invoke(true) }
+            } catch (t: Throwable) {
+                Log.w("PosViewModel", "Failed deleting transactions for period: ${t.message}")
+                withContext(Dispatchers.Main) { onResult?.invoke(false) }
+            }
+        }
+    }
+
+    fun deleteSingleTransaction(
+        transactionId: Long,
+        onResult: ((Boolean) -> Unit)? = null
+    ) {
+        viewModelScope.launch(Dispatchers.IO + coroutineExceptionHandler) {
+            try {
+                repository.deleteTransactionById(transactionId)
+                withContext(Dispatchers.Main) { onResult?.invoke(true) }
+            } catch (t: Throwable) {
+                Log.w("PosViewModel", "Failed deleting single transaction: ${t.message}")
+                withContext(Dispatchers.Main) { onResult?.invoke(false) }
+            }
+        }
+    }
 
     @OptIn(ExperimentalCoroutinesApi::class)
     val reportTransactions: StateFlow<List<Transaction>> = combine(_reportStartTime, _reportEndTime) { start, end ->
@@ -993,33 +1333,505 @@ class PosViewModel(application: Application) : AndroidViewModel(application) {
         gross - expenses
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0.0)
 
-    fun addExpense(title: String, amount: Double, category: String = "Operasional", notes: String = "") {
+    val allExpensesFlow: StateFlow<List<com.example.data.model.Expense>> = repository.getAllExpenses()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    private val _isExpenseSyncing = MutableStateFlow(false)
+    val isExpenseSyncing: StateFlow<Boolean> = _isExpenseSyncing.asStateFlow()
+
+    private val _expenseSyncStatus = MutableStateFlow("Otomatis tersinkron ke Laporan Web Chrome")
+    val expenseSyncStatus: StateFlow<String> = _expenseSyncStatus.asStateFlow()
+
+    private val isTrxExpenseAutoSyncRunning = java.util.concurrent.atomic.AtomicBoolean(false)
+    @Volatile
+    private var lastTrxExpenseAutoSyncAtMs: Long = 0L
+
+    @Synchronized
+    private fun getPendingExpenseIds(): MutableSet<Long> {
+        val raw = prefs.getString("KEY_PENDING_EXPENSE_IDS", "") ?: ""
+        return raw.split(",")
+            .mapNotNull { it.trim().toLongOrNull() }
+            .filter { it > 0L }
+            .toMutableSet()
+    }
+
+    @Synchronized
+    private fun markExpensePending(expenseId: Long) {
+        if (expenseId <= 0L) return
+        val ids = getPendingExpenseIds()
+        ids.add(expenseId)
+        prefs.edit().putString("KEY_PENDING_EXPENSE_IDS", ids.joinToString(",")).apply()
+    }
+
+    @Synchronized
+    private fun clearExpensePending(expenseId: Long) {
+        if (expenseId <= 0L) return
+        val ids = getPendingExpenseIds()
+        if (ids.remove(expenseId)) {
+            prefs.edit().putString("KEY_PENDING_EXPENSE_IDS", ids.joinToString(",")).apply()
+        }
+    }
+
+    @Synchronized
+    private fun getSyncedExpenseIds(): MutableSet<Long> {
+        val raw = prefs.getString("KEY_SYNCED_EXPENSE_IDS", "") ?: ""
+        return raw.split(",")
+            .mapNotNull { it.trim().toLongOrNull() }
+            .filter { it > 0L }
+            .toMutableSet()
+    }
+
+    @Synchronized
+    private fun markExpenseSynced(expenseId: Long) {
+        if (expenseId <= 0L) return
+        val ids = getSyncedExpenseIds()
+        if (ids.add(expenseId)) {
+            prefs.edit().putString("KEY_SYNCED_EXPENSE_IDS", ids.joinToString(",")).apply()
+        }
+    }
+
+    @Synchronized
+    private fun unmarkExpenseSynced(expenseId: Long) {
+        if (expenseId <= 0L) return
+        val ids = getSyncedExpenseIds()
+        if (ids.remove(expenseId)) {
+            prefs.edit().putString("KEY_SYNCED_EXPENSE_IDS", ids.joinToString(",")).apply()
+        }
+    }
+
+    @Synchronized
+    private fun getSyncedRemoteExpenseIds(): MutableSet<Long> {
+        val raw = prefs.getString("KEY_SYNCED_REMOTE_EXPENSE_IDS", "") ?: ""
+        return raw.split(",")
+            .mapNotNull { it.trim().toLongOrNull() }
+            .filter { it > 0L }
+            .toMutableSet()
+    }
+
+    @Synchronized
+    private fun markExpenseRemoteSynced(expenseId: Long) {
+        if (expenseId <= 0L) return
+        val ids = getSyncedRemoteExpenseIds()
+        if (ids.add(expenseId)) {
+            prefs.edit().putString("KEY_SYNCED_REMOTE_EXPENSE_IDS", ids.joinToString(",")).apply()
+        }
+    }
+
+    @Synchronized
+    private fun unmarkExpenseRemoteSynced(expenseId: Long) {
+        if (expenseId <= 0L) return
+        val ids = getSyncedRemoteExpenseIds()
+        if (ids.remove(expenseId)) {
+            prefs.edit().putString("KEY_SYNCED_REMOTE_EXPENSE_IDS", ids.joinToString(",")).apply()
+        }
+    }
+
+    suspend fun syncPendingExpensesInternal(): Pair<Int, Int> {
+        val allList = try {
+            repository.getAllExpenses().first()
+        } catch (_: Throwable) {
+            emptyList()
+        }
+        val pendingIds = getPendingExpenseIds()
+        val syncedIds = getSyncedExpenseIds()
+        val remoteSyncedIds = getSyncedRemoteExpenseIds()
+        val existingIds = allList.map { it.id }.toSet()
+        for (orphanId in pendingIds.filter { it !in existingIds }) {
+            clearExpensePending(orphanId)
+        }
+        val toSync = allList.filter { it.id in pendingIds || it.id !in syncedIds || it.id !in remoteSyncedIds }
+        if (toSync.isEmpty()) return 0 to 0
+
+        com.example.service.LocalWebReportServer.start(getApplication(), database)
+        val dbId = firebaseDatabaseId.value
+        val projId = firebaseProjectId.value
+        val hostUrl = resolveEffectiveHostingUrl(webDashboardUrl.value)
+        var okCount = 0
+        var remoteOkCount = 0
+        var lastRtdbHint: String? = null
+        for (exp in toSync) {
+            try {
+                val res = firebaseSyncRepository.syncExpenseDetailed(
+                    exp,
+                    databaseId = dbId,
+                    projectId = projId,
+                    hostingUrl = hostUrl
+                )
+                if (res.anyOk) {
+                    clearExpensePending(exp.id)
+                    markExpenseSynced(exp.id)
+                    if (res.remoteOk) {
+                        markExpenseRemoteSynced(exp.id)
+                        remoteOkCount++
+                    } else if (!res.rtdbError.isNullOrBlank() || res.rtdbHttpCode != null) {
+                        lastRtdbHint = res.rtdbHttpCode?.let { "HTTP $it" } ?: res.rtdbError
+                    }
+                    okCount++
+                } else if (!res.rtdbError.isNullOrBlank() || res.rtdbHttpCode != null) {
+                    lastRtdbHint = res.rtdbHttpCode?.let { "HTTP $it" } ?: res.rtdbError
+                }
+            } catch (_: Throwable) {
+            }
+        }
+        if (remoteOkCount > 0) {
+            _expenseSyncStatus.value = "✓ $remoteOkCount pengeluaran tersinkron ke Realtime Database & Web Chrome"
+        } else if (okCount > 0) {
+            val hint = lastRtdbHint?.let { " ($it)" } ?: ""
+            _expenseSyncStatus.value = "Relay lokal aktif ($okCount) • RTDB belum terjangkau$hint"
+        }
+        return okCount to (toSync.size - okCount)
+    }
+
+    /**
+     * Dipanggil otomatis ketika pengguna membuka bagian Laporan Transaksi / Laporan Pengeluaran
+     * agar semua catatan pengeluaran di Laporan Transaksi selalu tersinkron langsung ke Realtime Database & Web Online Chrome.
+     */
+    fun syncExpensesForTransactionReportAuto(
+        forceAll: Boolean = false,
+        onComplete: ((Int, Int) -> Unit)? = null
+    ) {
+        if (!isTrxExpenseAutoSyncRunning.compareAndSet(false, true)) return
         viewModelScope.launch(Dispatchers.IO + coroutineExceptionHandler) {
+            try {
+                com.example.service.LocalWebReportServer.start(getApplication(), database)
+                val allList = try {
+                    repository.getAllExpenses().first()
+                } catch (_: Throwable) {
+                    allExpensesFlow.value
+                }
+                val dbId = firebaseDatabaseId.value
+                val projId = firebaseProjectId.value
+                val hostUrl = resolveEffectiveHostingUrl(webDashboardUrl.value)
+                val nowMs = System.currentTimeMillis()
+                val recentlySyncedAll = (nowMs - lastTrxExpenseAutoSyncAtMs) < 3000L
+
+                if (forceAll && !recentlySyncedAll) {
+                    try {
+                        firebaseSyncRepository.reconcileExpensesWithRtdb(
+                            localExpenses = allList,
+                            databaseId = dbId,
+                            projectId = projId,
+                            hostingUrl = hostUrl
+                        ) { _, parsed ->
+                            val newId = repository.insertExpense(parsed)
+                            markExpenseSynced(newId)
+                            clearExpensePending(newId)
+                            parsed.copy(id = newId)
+                        }
+                    } catch (_: Throwable) {
+                    }
+                }
+
+                val refreshedList = try {
+                    repository.getAllExpenses().first()
+                } catch (_: Throwable) {
+                    allList
+                }
+                val pendingIds = getPendingExpenseIds()
+                val syncedIds = getSyncedExpenseIds()
+                val remoteSyncedIds = getSyncedRemoteExpenseIds()
+                val unsyncedList = refreshedList.filter { it.id in pendingIds || it.id !in syncedIds || it.id !in remoteSyncedIds }
+
+                val targets = when {
+                    refreshedList.isEmpty() -> emptyList()
+                    unsyncedList.isNotEmpty() -> (unsyncedList + refreshedList.take(25)).distinctBy { it.id }
+                    forceAll && !recentlySyncedAll -> refreshedList.take(100)
+                    else -> emptyList()
+                }
+
+                if (targets.isEmpty()) {
+                    if (refreshedList.isEmpty()) {
+                        _expenseSyncStatus.value = "Auto-Sync RTDB & Web Chrome aktif • Belum ada pengeluaran"
+                    } else if (pendingIds.isEmpty() && refreshedList.all { it.id in remoteSyncedIds }) {
+                        _expenseSyncStatus.value = "✓ ${refreshedList.size} pengeluaran tersinkron ke Realtime Database & Web Chrome"
+                    } else if (pendingIds.isEmpty()) {
+                        _expenseSyncStatus.value = "Tersimpan di Relay lokal (${refreshedList.size}) • menunggu koneksi RTDB"
+                    }
+                    withContext(Dispatchers.Main) {
+                        onComplete?.invoke(refreshedList.size, refreshedList.size)
+                    }
+                    return@launch
+                }
+
+                _isExpenseSyncing.value = true
+                _expenseSyncStatus.value = "Menyinkronkan otomatis ${targets.size} pengeluaran ke Realtime Database & Web Chrome..."
+                var ok = 0
+                var rtdbOkCount = 0
+                var lastRtdbHint: String? = null
+                for (exp in targets) {
+                    try {
+                        val res = firebaseSyncRepository.syncExpenseDetailed(
+                            exp,
+                            databaseId = dbId,
+                            projectId = projId,
+                            hostingUrl = hostUrl
+                        )
+                        if (res.anyOk) {
+                            clearExpensePending(exp.id)
+                            markExpenseSynced(exp.id)
+                            if (res.remoteOk) {
+                                markExpenseRemoteSynced(exp.id)
+                                rtdbOkCount++
+                            } else if (!res.rtdbError.isNullOrBlank() || res.rtdbHttpCode != null) {
+                                lastRtdbHint = res.rtdbHttpCode?.let { "HTTP $it" } ?: res.rtdbError
+                            }
+                            ok++
+                        } else {
+                            markExpensePending(exp.id)
+                            if (!res.rtdbError.isNullOrBlank() || res.rtdbHttpCode != null) {
+                                lastRtdbHint = res.rtdbHttpCode?.let { "HTTP $it" } ?: res.rtdbError
+                            }
+                        }
+                    } catch (_: Throwable) {
+                        markExpensePending(exp.id)
+                    }
+                }
+                // Sekaligus sinkronkan transaksi pending agar laporan Laba Kotor & Bersih di Chrome konsisten
+                try {
+                    syncPendingTransactionsInternal()
+                } catch (_: Throwable) {
+                }
+
+                lastTrxExpenseAutoSyncAtMs = System.currentTimeMillis()
+                _expenseSyncStatus.value = when {
+                    rtdbOkCount == targets.size && allList.isNotEmpty() ->
+                        "✓ ${allList.size} pengeluaran tersinkron ke Realtime Database & Web Chrome"
+                    rtdbOkCount > 0 ->
+                        "✓ $rtdbOkCount/${targets.size} tersinkron ke Realtime Database"
+                    ok > 0 -> {
+                        val hint = lastRtdbHint?.let { " ($it)" } ?: ""
+                        "Relay lokal aktif ($ok/${targets.size}) • RTDB gagal/offline$hint"
+                    }
+                    else -> {
+                        val hint = lastRtdbHint?.let { " ($it)" } ?: ""
+                        "Belum terkirim ke RTDB$hint — otomatis coba ulang"
+                    }
+                }
+                withContext(Dispatchers.Main) {
+                    onComplete?.invoke(if (rtdbOkCount > 0) rtdbOkCount else ok, targets.size)
+                }
+            } finally {
+                _isExpenseSyncing.value = false
+                isTrxExpenseAutoSyncRunning.set(false)
+            }
+        }
+    }
+
+    fun addExpense(
+        title: String,
+        amount: Double,
+        category: String = "Operasional",
+        notes: String = "",
+        timestampMillis: Long = System.currentTimeMillis(),
+        onResult: ((Boolean, String) -> Unit)? = null
+    ) {
+        viewModelScope.launch(Dispatchers.IO + coroutineExceptionHandler) {
+            com.example.service.LocalWebReportServer.start(getApplication(), database)
             val user = _currentUser.value?.fullName ?: "Admin"
             val newExpense = com.example.data.model.Expense(
                 title = title.trim(),
                 amount = amount,
                 category = category.trim().ifBlank { "Operasional" },
+                timestamp = timestampMillis,
                 notes = notes.trim(),
                 createdBy = user
             )
             val insertedId = repository.insertExpense(newExpense)
+            markExpensePending(insertedId)
             val savedExpense = newExpense.copy(id = insertedId)
-            try {
-                firebaseSyncRepository.syncExpense(savedExpense, databaseId = firebaseDatabaseId.value)
+            _isExpenseSyncing.value = true
+            _expenseSyncStatus.value = "Menyinkronkan '${savedExpense.title}' ke Realtime Database & Web Chrome..."
+            val res = try {
+                firebaseSyncRepository.syncExpenseDetailed(
+                    savedExpense,
+                    databaseId = firebaseDatabaseId.value,
+                    projectId = firebaseProjectId.value,
+                    hostingUrl = resolveEffectiveHostingUrl(webDashboardUrl.value)
+                )
             } catch (t: Throwable) {
-                Log.w("PosViewModel", "Expense RTDB sync note: ${t.message}")
+                Log.w("PosViewModel", "Expense sync note: ${t.message}")
+                FirebaseSyncRepository.ExpenseSyncResult(
+                    relayOk = false,
+                    rtdbOk = false,
+                    isLoopbackRelay = true,
+                    rtdbError = t.message
+                )
+            }
+            val synced = res.anyOk
+            if (synced) {
+                clearExpensePending(insertedId)
+                markExpenseSynced(insertedId)
+                if (res.remoteOk) {
+                    markExpenseRemoteSynced(insertedId)
+                }
+            }
+            _isExpenseSyncing.value = false
+            val rtdbHint = res.rtdbHttpCode?.let { " (HTTP $it)" }
+                ?: res.rtdbError?.take(48)?.let { " ($it)" }
+                ?: ""
+            val msg = when {
+                res.rtdbOk && res.relayOk ->
+                    "✓ Tersinkron ke Realtime Database & Web Chrome (${savedExpense.title})"
+                res.rtdbOk ->
+                    "✓ Tersinkron ke Realtime Database (${savedExpense.title})"
+                res.relayOk ->
+                    "Relay lokal tersimpan • RTDB gagal/offline$rtdbHint (${savedExpense.title})"
+                else ->
+                    "Tersimpan lokal — otomatis kirim ulang ke RTDB$rtdbHint"
+            }
+            _expenseSyncStatus.value = msg
+            if (res.rtdbOk) {
+                _lastSyncStatus.value = "Pengeluaran '${savedExpense.title}' tersinkron ke Realtime Database & Web Chrome"
+            } else if (synced) {
+                _lastSyncStatus.value = "Pengeluaran '${savedExpense.title}' tersimpan di Relay lokal (menunggu RTDB)"
+            }
+            withContext(Dispatchers.Main) {
+                onResult?.invoke(synced, msg)
             }
         }
     }
 
-    fun deleteExpense(expense: com.example.data.model.Expense) {
+    fun deleteExpense(
+        expense: com.example.data.model.Expense,
+        onResult: ((Boolean) -> Unit)? = null
+    ) {
         viewModelScope.launch(Dispatchers.IO + coroutineExceptionHandler) {
+            com.example.service.LocalWebReportServer.start(getApplication(), database)
             repository.deleteExpense(expense)
-            try {
-                firebaseSyncRepository.deleteExpenseFromRtdb(expense.id, databaseId = firebaseDatabaseId.value)
+            clearExpensePending(expense.id)
+            unmarkExpenseSynced(expense.id)
+            unmarkExpenseRemoteSynced(expense.id)
+            val remaining = try {
+                repository.getAllExpenses().first()
+            } catch (_: Throwable) {
+                emptyList()
+            }
+            val dateFmt = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US)
+            val todayStr = dateFmt.format(java.util.Date())
+            val remainingTodayTotal = remaining
+                .filter { dateFmt.format(java.util.Date(it.timestamp)) == todayStr }
+                .sumOf { it.amount }
+            val latestRemaining = remaining.maxByOrNull { it.timestamp }
+            _isExpenseSyncing.value = true
+            val deleted = try {
+                firebaseSyncRepository.deleteExpenseFromRtdb(
+                    expense.id,
+                    databaseId = firebaseDatabaseId.value,
+                    projectId = firebaseProjectId.value,
+                    hostingUrl = resolveEffectiveHostingUrl(webDashboardUrl.value),
+                    timestampMillis = expense.timestamp,
+                    latestRemainingExpense = latestRemaining,
+                    remainingTodayTotal = remainingTodayTotal,
+                    todayDateStr = todayStr
+                )
             } catch (t: Throwable) {
-                Log.w("PosViewModel", "Expense RTDB delete note: ${t.message}")
+                Log.w("PosViewModel", "Expense delete sync note: ${t.message}")
+                false
+            }
+            _isExpenseSyncing.value = false
+            _expenseSyncStatus.value = if (deleted) {
+                "Catatan '${expense.title}' dihapus dari Realtime Database & Web Chrome"
+            } else {
+                "Catatan '${expense.title}' dihapus lokal"
+            }
+            withContext(Dispatchers.Main) {
+                onResult?.invoke(deleted)
+            }
+        }
+    }
+
+    fun syncAllExpensesToCloud(onResult: ((Int, Int) -> Unit)? = null) {
+        viewModelScope.launch(Dispatchers.IO + coroutineExceptionHandler) {
+            com.example.service.LocalWebReportServer.start(getApplication(), database)
+            val initialList = try {
+                repository.getAllExpenses().first()
+            } catch (_: Throwable) {
+                allExpensesFlow.value
+            }
+            _isExpenseSyncing.value = true
+            _expenseSyncStatus.value = "Menyinkronkan & mencocokkan catatan pengeluaran ke Realtime Database & Web Chrome..."
+            val dbId = firebaseDatabaseId.value
+            val projId = firebaseProjectId.value
+            val hostUrl = resolveEffectiveHostingUrl(webDashboardUrl.value)
+
+            try {
+                firebaseSyncRepository.reconcileExpensesWithRtdb(
+                    localExpenses = initialList,
+                    databaseId = dbId,
+                    projectId = projId,
+                    hostingUrl = hostUrl
+                ) { _, parsed ->
+                    val newId = repository.insertExpense(parsed)
+                    markExpenseSynced(newId)
+                    clearExpensePending(newId)
+                    parsed.copy(id = newId)
+                }
+            } catch (_: Throwable) {
+            }
+
+            val allList = try {
+                repository.getAllExpenses().first()
+            } catch (_: Throwable) {
+                initialList
+            }
+            if (allList.isEmpty()) {
+                _isExpenseSyncing.value = false
+                _expenseSyncStatus.value = "✓ Pengeluaran disinkronkan (0 catatan aktif di aplikasi & RTDB)"
+                withContext(Dispatchers.Main) {
+                    onResult?.invoke(0, 0)
+                }
+                return@launch
+            }
+            var ok = 0
+            var rtdbOkCount = 0
+            var lastRtdbHint: String? = null
+            for (exp in allList) {
+                try {
+                    val res = firebaseSyncRepository.syncExpenseDetailed(
+                        exp,
+                        databaseId = dbId,
+                        projectId = projId,
+                        hostingUrl = hostUrl
+                    )
+                    if (res.anyOk) {
+                        clearExpensePending(exp.id)
+                        markExpenseSynced(exp.id)
+                        if (res.remoteOk) {
+                            markExpenseRemoteSynced(exp.id)
+                            rtdbOkCount++
+                        } else if (!res.rtdbError.isNullOrBlank() || res.rtdbHttpCode != null) {
+                            lastRtdbHint = res.rtdbHttpCode?.let { "HTTP $it" } ?: res.rtdbError
+                        }
+                        ok++
+                    } else {
+                        markExpensePending(exp.id)
+                        if (!res.rtdbError.isNullOrBlank() || res.rtdbHttpCode != null) {
+                            lastRtdbHint = res.rtdbHttpCode?.let { "HTTP $it" } ?: res.rtdbError
+                        }
+                    }
+                } catch (_: Throwable) {
+                    markExpensePending(exp.id)
+                }
+            }
+            val total = allList.size
+            lastTrxExpenseAutoSyncAtMs = System.currentTimeMillis()
+            _isExpenseSyncing.value = false
+            _expenseSyncStatus.value = when {
+                rtdbOkCount == total ->
+                    "✓ $rtdbOkCount/$total catatan tersinkron ke Realtime Database & Web Chrome"
+                rtdbOkCount > 0 ->
+                    "✓ $rtdbOkCount/$total tersinkron ke Realtime Database"
+                ok > 0 -> {
+                    val hint = lastRtdbHint?.let { " ($it)" } ?: ""
+                    "Relay lokal aktif ($ok/$total) • RTDB gagal/offline$hint"
+                }
+                else -> {
+                    val hint = lastRtdbHint?.let { " ($it)" } ?: ""
+                    "0/$total gagal kirim ke RTDB$hint (otomatis coba ulang)"
+                }
+            }
+            withContext(Dispatchers.Main) {
+                onResult?.invoke(if (rtdbOkCount > 0) rtdbOkCount else ok, total)
             }
         }
     }
@@ -1033,7 +1845,7 @@ class PosViewModel(application: Application) : AndroidViewModel(application) {
     ) {
         viewModelScope.launch(Dispatchers.IO + coroutineExceptionHandler) {
             val profile = storeProfile.value
-            val label = selectedDateFilter.value.label
+            val label = getActiveReportPeriodLabel()
             val cashier = currentUser.value?.fullName ?: "Admin"
             val success = printerManager.printProfitExpenseReceipt(
                 profile = profile,
@@ -1057,7 +1869,7 @@ class PosViewModel(application: Application) : AndroidViewModel(application) {
         grossSales: Double
     ): String {
         val profile = storeProfile.value
-        val dateLabel = selectedDateFilter.value.label
+        val dateLabel = getActiveReportPeriodLabel()
         val cashier = currentUser.value?.fullName ?: "Admin"
         val sb = StringBuilder()
         sb.appendLine("📊 *LAPORAN KEUANGAN TOKO*")
@@ -1086,6 +1898,11 @@ class PosViewModel(application: Application) : AndroidViewModel(application) {
                 _reportStartTime.value = getStartOfDay(-1)
                 _reportEndTime.value = getEndOfDay(-1)
             }
+            DateFilter.CUSTOM_DATE -> {
+                val selectedMillis = _selectedCustomDateMillis.value
+                _reportStartTime.value = getStartOfDayForMillis(selectedMillis)
+                _reportEndTime.value = getEndOfDayForMillis(selectedMillis)
+            }
             DateFilter.LAST_7_DAYS -> {
                 _reportStartTime.value = getStartOfDay(-6)
                 _reportEndTime.value = getEndOfDay(0)
@@ -1110,7 +1927,7 @@ class PosViewModel(application: Application) : AndroidViewModel(application) {
      */
     fun checkDateRolloverAndAutoArchive() {
         viewModelScope.launch(Dispatchers.IO + coroutineExceptionHandler) {
-            val dateFormat = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.getDefault())
+            val dateFormat = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US)
             val currentDateStr = dateFormat.format(java.util.Date())
             val lastDateStr = prefs.getString("KEY_LAST_ACTIVE_DATE", "") ?: ""
 
@@ -1148,6 +1965,8 @@ class PosViewModel(application: Application) : AndroidViewModel(application) {
 
                 // 2. Reset rentang waktu laporan hari ini di aplikasi agar kembali ke 0
                 withContext(Dispatchers.Main) {
+                    _selectedDateFilter.value = DateFilter.TODAY
+                    _selectedCustomDateMillis.value = getStartOfDay(0)
                     refreshReportData()
                 }
             }
@@ -1167,7 +1986,7 @@ class PosViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch(Dispatchers.IO + coroutineExceptionHandler) {
             _isGeneratingReport.value = true
             try {
-                val dateFormat = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.getDefault())
+                val dateFormat = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US)
                 val todayStr = dateFormat.format(java.util.Date())
                 repository.generateOrUpdateDailyReportForDate(
                     dateStr = todayStr,
@@ -1245,7 +2064,7 @@ class PosViewModel(application: Application) : AndroidViewModel(application) {
     fun printOmsetReceipt(totalRevenue: Double, onResult: ((Boolean, String) -> Unit)? = null) {
         viewModelScope.launch(Dispatchers.IO + coroutineExceptionHandler) {
             val profile = storeProfile.value
-            val label = selectedDateFilter.value.label
+            val label = getActiveReportPeriodLabel()
             val cashier = currentUser.value?.fullName ?: "Admin"
             val success = printerManager.printOmsetReceipt(profile, totalRevenue, label, cashier)
             withContext(Dispatchers.Main) {
@@ -1261,8 +2080,9 @@ class PosViewModel(application: Application) : AndroidViewModel(application) {
             try {
                 val dbId = firebaseDatabaseId.value
                 val projId = firebaseProjectId.value
+                val hostUrl = resolveEffectiveHostingUrl(webDashboardUrl.value)
                 val (connected, message) = withContext(Dispatchers.IO) {
-                    firebaseSyncRepository.checkCloudConnection(databaseId = dbId, projectId = projId)
+                    firebaseSyncRepository.checkCloudConnection(databaseId = dbId, projectId = projId, hostingUrl = hostUrl)
                 }
                 _lastSyncStatus.value = message
                 try {
@@ -1287,12 +2107,14 @@ class PosViewModel(application: Application) : AndroidViewModel(application) {
     fun syncAllToCloud(onComplete: (Boolean, String) -> Unit) {
         viewModelScope.launch(coroutineExceptionHandler) {
             _isCloudSyncing.value = true
-            _lastSyncStatus.value = "Sedang menyinkronkan data langsung ke Firebase..."
+            _lastSyncStatus.value = "Sedang menyinkronkan data langsung ke Web Chrome..."
             try {
                 val dbId = firebaseDatabaseId.value
+                val projId = firebaseProjectId.value
+                val hostUrl = resolveEffectiveHostingUrl(webDashboardUrl.value)
                 val profile = repository.getStoreProfileSync()
                 try {
-                    firebaseSyncRepository.syncStoreProfile(profile, databaseId = dbId)
+                    firebaseSyncRepository.syncStoreProfile(profile, databaseId = dbId, projectId = projId, hostingUrl = hostUrl)
                 } catch (t: Throwable) {
                     Log.w("PosViewModel", "syncStoreProfile note", t)
                 }
@@ -1306,7 +2128,7 @@ class PosViewModel(application: Application) : AndroidViewModel(application) {
                 for (t in transactions) {
                     try {
                         val items = repository.getItemsForTransaction(t.id)
-                        val success = firebaseSyncRepository.syncTransaction(t, items, databaseId = dbId)
+                        val success = firebaseSyncRepository.syncTransaction(t, items, databaseId = dbId, projectId = projId, hostingUrl = hostUrl)
                         if (success) {
                             trxCount++
                             repository.updateSyncStatus(t.id, isSynced = true, syncedAt = System.currentTimeMillis(), error = null)
@@ -1318,6 +2140,14 @@ class PosViewModel(application: Application) : AndroidViewModel(application) {
                     }
                 }
 
+                val recentExpenses = try {
+                    repository.getAllExpenses().first().take(100)
+                } catch (tExp: Throwable) {
+                    emptyList()
+                }
+                val dateFmtUs = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US)
+                val expensesByDate = recentExpenses.groupBy { dateFmtUs.format(java.util.Date(it.timestamp)) }
+
                 val closings = try {
                     repository.getAllShiftClosings().first().take(10)
                 } catch (t: Throwable) {
@@ -1326,29 +2156,87 @@ class PosViewModel(application: Application) : AndroidViewModel(application) {
                 var shiftCount = 0
                 for (c in closings) {
                     try {
-                        val success = firebaseSyncRepository.syncShiftClosing(c, databaseId = dbId)
+                        val cDateStr = dateFmtUs.format(java.util.Date(c.closingTime))
+                        val dayExps = expensesByDate[cDateStr].orEmpty()
+                        val totalExp = dayExps.sumOf { it.amount }
+                        val expNotes = dayExps.joinToString("; ") { exp ->
+                            val notePart = if (exp.notes.isNotBlank()) " (${exp.notes})" else ""
+                            "${exp.title} [${exp.category}]: Rp ${String.format(java.util.Locale("id", "ID"), "%,.0f", exp.amount)}$notePart"
+                        }
+                        val success = firebaseSyncRepository.syncShiftClosing(
+                            closing = c,
+                            databaseId = dbId,
+                            totalExpenses = totalExp,
+                            expenseNotes = expNotes,
+                            projectId = projId,
+                            hostingUrl = hostUrl,
+                            expensesList = dayExps
+                        )
                         if (success) shiftCount++
                     } catch (tShift: Throwable) {
                         Log.w("PosViewModel", "syncShiftClosing note", tShift)
                     }
                 }
 
-                val recentExpenses = try {
-                    repository.getExpensesBetweenList(0L, System.currentTimeMillis()).take(50)
-                } catch (tExp: Throwable) {
-                    emptyList()
+                try {
+                    firebaseSyncRepository.reconcileExpensesWithRtdb(
+                        localExpenses = recentExpenses,
+                        databaseId = dbId,
+                        projectId = projId,
+                        hostingUrl = hostUrl
+                    ) { _, parsed ->
+                        val newId = repository.insertExpense(parsed)
+                        markExpenseSynced(newId)
+                        clearExpensePending(newId)
+                        parsed.copy(id = newId)
+                    }
+                } catch (_: Throwable) {
                 }
-                for (exp in recentExpenses) {
+
+                val syncedExpensesList = try {
+                    database.expenseDao().getExpensesBetweenList(0L, Long.MAX_VALUE)
+                } catch (_: Throwable) {
+                    recentExpenses
+                }
+
+                var expRelayCount = 0
+                var expRemoteCount = 0
+                var lastExpErr: String? = null
+                for (exp in syncedExpensesList) {
                     try {
-                        firebaseSyncRepository.syncExpense(exp, databaseId = dbId)
+                        val res = firebaseSyncRepository.syncExpenseDetailed(exp, databaseId = dbId, projectId = projId, hostingUrl = hostUrl)
+                        if (res.anyOk) {
+                            clearExpensePending(exp.id)
+                            markExpenseSynced(exp.id)
+                            expRelayCount++
+                            if (res.remoteOk) {
+                                markExpenseRemoteSynced(exp.id)
+                                expRemoteCount++
+                            } else if (!res.rtdbError.isNullOrBlank() || res.rtdbHttpCode != null) {
+                                lastExpErr = res.rtdbHttpCode?.let { "HTTP $it" } ?: res.rtdbError
+                            }
+                        } else if (!res.rtdbError.isNullOrBlank() || res.rtdbHttpCode != null) {
+                            lastExpErr = res.rtdbHttpCode?.let { "HTTP $it" } ?: res.rtdbError
+                        }
                     } catch (_: Throwable) {
                     }
                 }
+                lastTrxExpenseAutoSyncAtMs = System.currentTimeMillis()
+                _expenseSyncStatus.value = when {
+                    syncedExpensesList.isEmpty() -> "Belum ada catatan pengeluaran"
+                    expRemoteCount == syncedExpensesList.size -> "✓ $expRemoteCount/${syncedExpensesList.size} pengeluaran tersinkron ke Realtime Database & Web Chrome"
+                    expRemoteCount > 0 -> "✓ $expRemoteCount/${syncedExpensesList.size} pengeluaran tersinkron ke Realtime Database"
+                    expRelayCount > 0 -> "Relay lokal aktif ($expRelayCount) • RTDB gagal${lastExpErr?.let { " ($it)" } ?: ""}"
+                    else -> "Gagal kirim ke RTDB${lastExpErr?.let { " ($it)" } ?: ""}"
+                }
 
-                val msg = if (trxCount > 0 || shiftCount > 0) {
-                    "Berhasil sinkron $trxCount transaksi & $shiftCount shift ke Cloud!"
-                } else {
-                    "Semua data sudah tersinkronkan atau jaringan sedang offline."
+                val msg = when {
+                    trxCount > 0 || shiftCount > 0 || expRemoteCount > 0 ->
+                        "Berhasil sinkron $trxCount transaksi, $expRemoteCount pengeluaran ke RTDB & $shiftCount shift ke Web Chrome!"
+                    expRelayCount > 0 ->
+                        "Tersimpan di Relay Lokal ($expRelayCount pengeluaran) • RTDB gagal${lastExpErr?.let { " ($it)" } ?: ""}"
+                    else ->
+                        "Semua data sudah tersinkronkan atau jaringan sedang offline."
                 }
                 _lastSyncStatus.value = msg
                 onComplete(true, msg)
@@ -1371,13 +2259,15 @@ class PosViewModel(application: Application) : AndroidViewModel(application) {
         if (pending.isEmpty()) return Pair(0, 0)
 
         val dbId = firebaseDatabaseId.value
+        val projId = firebaseProjectId.value
+        val hostUrl = resolveEffectiveHostingUrl(webDashboardUrl.value)
         var successCount = 0
         var failCount = 0
 
         for (trx in pending) {
             try {
                 val items = repository.getItemsForTransaction(trx.id)
-                val ok = firebaseSyncRepository.syncTransaction(trx, items, databaseId = dbId)
+                val ok = firebaseSyncRepository.syncTransaction(trx, items, databaseId = dbId, projectId = projId, hostingUrl = hostUrl)
                 if (ok) {
                     repository.updateSyncStatus(trx.id, isSynced = true, syncedAt = System.currentTimeMillis(), error = null)
                     successCount++
@@ -1402,12 +2292,15 @@ class PosViewModel(application: Application) : AndroidViewModel(application) {
             _isCloudSyncing.value = true
             try {
                 val (success, fail) = syncPendingTransactionsInternal()
-                val msg = if (fail == 0 && success > 0) {
-                    "Semua $success transaksi berhasil disinkronkan ke Cloud!"
-                } else if (success == 0 && fail == 0) {
-                    "Semua transaksi sudah tersinkronkan ke Cloud."
+                val (expSuccess, expFail) = syncPendingExpensesInternal()
+                val totalOk = success + expSuccess
+                val totalFail = fail + expFail
+                val msg = if (totalFail == 0 && totalOk > 0) {
+                    "Semua $success transaksi & $expSuccess pengeluaran berhasil disinkronkan!"
+                } else if (totalOk == 0 && totalFail == 0) {
+                    "Semua data sudah tersinkronkan ke Web Chrome."
                 } else {
-                    "$success berhasil disinkronkan, $fail transaksi menunggu jaringan"
+                    "$totalOk berhasil disinkronkan, $totalFail menunggu jaringan"
                 }
                 _lastSyncStatus.value = msg
                 onComplete(true, msg)
@@ -1426,7 +2319,9 @@ class PosViewModel(application: Application) : AndroidViewModel(application) {
             try {
                 val items = repository.getItemsForTransaction(transaction.id)
                 val dbId = firebaseDatabaseId.value
-                val ok = firebaseSyncRepository.syncTransaction(transaction, items, databaseId = dbId)
+                val projId = firebaseProjectId.value
+                val hostUrl = resolveEffectiveHostingUrl(webDashboardUrl.value)
+                val ok = firebaseSyncRepository.syncTransaction(transaction, items, databaseId = dbId, projectId = projId, hostingUrl = hostUrl)
                 if (ok) {
                     repository.updateSyncStatus(transaction.id, isSynced = true, syncedAt = System.currentTimeMillis(), error = null)
                     onResult(true, "Transaksi #${transaction.invoiceNumber} berhasil disinkronkan!")
@@ -1526,6 +2421,73 @@ class PosViewModel(application: Application) : AndroidViewModel(application) {
                 set(Calendar.MILLISECOND, 0)
             }
             return cal.timeInMillis
+        }
+
+        fun getStartOfDayForMillis(millis: Long): Long {
+            val cal = Calendar.getInstance().apply {
+                timeInMillis = millis
+                set(Calendar.HOUR_OF_DAY, 0)
+                set(Calendar.MINUTE, 0)
+                set(Calendar.SECOND, 0)
+                set(Calendar.MILLISECOND, 0)
+            }
+            return cal.timeInMillis
+        }
+
+        fun getEndOfDayForMillis(millis: Long): Long {
+            val cal = Calendar.getInstance().apply {
+                timeInMillis = millis
+                set(Calendar.HOUR_OF_DAY, 23)
+                set(Calendar.MINUTE, 59)
+                set(Calendar.SECOND, 59)
+                set(Calendar.MILLISECOND, 999)
+            }
+            return cal.timeInMillis
+        }
+
+        fun normalizeUtcDatePickerMillisToLocalStartOfDay(utcMillis: Long): Long {
+            val utcCal = Calendar.getInstance(java.util.TimeZone.getTimeZone("UTC")).apply {
+                timeInMillis = utcMillis
+            }
+            val localCal = Calendar.getInstance().apply {
+                set(Calendar.YEAR, utcCal.get(Calendar.YEAR))
+                set(Calendar.MONTH, utcCal.get(Calendar.MONTH))
+                set(Calendar.DAY_OF_MONTH, utcCal.get(Calendar.DAY_OF_MONTH))
+                set(Calendar.HOUR_OF_DAY, 0)
+                set(Calendar.MINUTE, 0)
+                set(Calendar.SECOND, 0)
+                set(Calendar.MILLISECOND, 0)
+            }
+            return localCal.timeInMillis
+        }
+
+        fun localStartOfDayToUtcPickerMillis(localMillis: Long): Long {
+            val localCal = Calendar.getInstance().apply {
+                timeInMillis = localMillis
+            }
+            val utcCal = Calendar.getInstance(java.util.TimeZone.getTimeZone("UTC")).apply {
+                set(Calendar.YEAR, localCal.get(Calendar.YEAR))
+                set(Calendar.MONTH, localCal.get(Calendar.MONTH))
+                set(Calendar.DAY_OF_MONTH, localCal.get(Calendar.DAY_OF_MONTH))
+                set(Calendar.HOUR_OF_DAY, 0)
+                set(Calendar.MINUTE, 0)
+                set(Calendar.SECOND, 0)
+                set(Calendar.MILLISECOND, 0)
+            }
+            return utcCal.timeInMillis
+        }
+
+        fun formatPeriodLabel(filter: DateFilter, customDateMillis: Long): String {
+            val idLocale = java.util.Locale("id", "ID")
+            val fmt = java.text.SimpleDateFormat("EEE, dd MMM yyyy", idLocale)
+            return when (filter) {
+                DateFilter.TODAY -> "Hari Ini (${fmt.format(java.util.Date(getStartOfDay(0)))})"
+                DateFilter.YESTERDAY -> "Kemarin (${fmt.format(java.util.Date(getStartOfDay(-1)))})"
+                DateFilter.CUSTOM_DATE -> fmt.format(java.util.Date(customDateMillis))
+                DateFilter.LAST_7_DAYS -> "7 Hari Terakhir"
+                DateFilter.THIS_MONTH -> "Bulan Ini"
+                DateFilter.ALL -> "Semua Waktu"
+            }
         }
     }
 }

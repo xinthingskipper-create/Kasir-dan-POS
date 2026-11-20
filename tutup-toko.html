@@ -698,21 +698,72 @@
       ];
     }
 
-    // Dynamic REST fetch with fallback
+    function getTutupTokoRelayBases() {
+      const clean = (v) => {
+        if (!v) return null;
+        const s = String(v).trim().replace(/\/+$/, '');
+        return /^https?:\/\//i.test(s) ? s : null;
+      };
+      const paramRelay = clean(urlParams.get('localRelay') || urlParams.get('relay') || urlParams.get('relayUrl'));
+      if (paramRelay) {
+        try { localStorage.setItem('pos_local_relay_url', paramRelay); } catch (_) {}
+      }
+      let storedRelay = null;
+      try { storedRelay = clean(localStorage.getItem('pos_local_relay_url')); } catch (_) {}
+      const list = [];
+      if (paramRelay) list.push(paramRelay);
+      if (window.location.protocol === 'http:' || window.location.protocol === 'https:') {
+        list.push(window.location.origin);
+      }
+      if (storedRelay) list.push(storedRelay);
+      if (!paramRelay) {
+        list.push('http://127.0.0.1:8080', 'http://127.0.0.1:8765', 'http://localhost:8080', 'http://localhost:8765');
+      }
+      return Array.from(new Set(list.filter(Boolean).map(b => b.replace(/\/+$/, ''))));
+    }
+
+    // Dynamic REST fetch with multi-relay discovery + RTDB fallback
     async function fetchRtdbNode(nodePath) {
+      const cleanPath = String(nodePath || '').replace(/^\/+/, '');
+      let relayData = null;
+      for (const base of getTutupTokoRelayBases()) {
+        try {
+          const relayRes = await fetch(`${base}/api/sync/${cleanPath}`, { cache: 'no-store' });
+          if (relayRes.ok) {
+            const ct = (relayRes.headers.get('content-type') || '').toLowerCase();
+            if (ct.includes('text/html')) continue;
+            const parsed = await relayRes.json();
+            if (parsed && typeof parsed === 'object' && !parsed.error) {
+              relayData = parsed;
+              break;
+            }
+          }
+        } catch (e) {}
+      }
+
+      let rtdbData = null;
       const candidates = getRtdbCandidates(rtdbInstance);
       for (const base of candidates) {
         try {
-          const res = await fetch(`${base}/${nodePath}.json`, { cache: 'no-store' });
+          const res = await fetch(`${base}/${cleanPath}.json`, { cache: 'no-store' });
           if (res.ok) {
+            const ct = (res.headers.get('content-type') || '').toLowerCase();
+            if (ct.includes('text/html')) continue;
             const data = await res.json();
-            return data;
+            if (data && typeof data === 'object' && !data.error) {
+              rtdbData = data;
+              break;
+            }
           }
         } catch (e) {
           // try next candidate
         }
       }
-      return null;
+
+      if (rtdbData && relayData && !Array.isArray(rtdbData) && !Array.isArray(relayData)) {
+        return { ...rtdbData, ...relayData };
+      }
+      return relayData || rtdbData || null;
     }
 
     // Main Data Loader

@@ -13,9 +13,9 @@ data class CloudHostingConfig(
 
     // --- 2. Web Laporan Harian Pemilik (Portal Privat) ---
     val useSeparateOwnerProject: Boolean = true,
-    val ownerProjectId: String = "laporan-service",
-    val ownerDatabaseId: String = "ai-studio-android-kasirpos-6c79f90a-57f2-4e44-8393-a818a10f5d55",
-    val ownerHostingUrl: String = "https://ais-dev-wgdowcmyzzxhdk2ko2iu46-852851605479.asia-southeast1.run.app",
+    val ownerProjectId: String = "foodrock-report",
+    val ownerDatabaseId: String = "foodrock-report-default-rtdb",
+    val ownerHostingUrl: String = "http://127.0.0.1:8080/owner.html",
 
     // --- 1. Web Menu Konsumen (Katalog Publik) ---
     val enableConsumerWeb: Boolean = false,

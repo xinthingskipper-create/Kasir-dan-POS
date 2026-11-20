@@ -4,6 +4,7 @@ import android.content.Intent
 import android.net.Uri
 import android.util.Log
 import android.widget.Toast
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
@@ -13,6 +14,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -29,6 +31,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Assessment
 import androidx.compose.material.icons.filled.CalendarToday
@@ -63,6 +67,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilterChip
@@ -82,6 +87,7 @@ import androidx.compose.material.icons.filled.CloudUpload
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.ui.draw.scale
+import androidx.compose.ui.text.style.TextOverflow
 import com.google.firebase.auth.FirebaseUser
 import com.example.data.model.UserRole
 import androidx.compose.runtime.Composable
@@ -110,7 +116,6 @@ import com.example.data.model.DailyReport
 import com.example.data.model.ShiftClosing
 import com.example.data.model.StoreProfile
 import com.example.data.model.Transaction
-import com.example.ui.DateFilter
 import com.example.ui.PosViewModel
 import java.net.URLEncoder
 import java.text.SimpleDateFormat
@@ -123,45 +128,63 @@ fun DailyReportScreen(viewModel: PosViewModel) {
     androidx.compose.runtime.LaunchedEffect(Unit) {
         viewModel.checkDateRolloverAndAutoArchive()
         viewModel.refreshReportData()
+        viewModel.syncExpensesForTransactionReportAuto(forceAll = true)
     }
     val clipboardManager = LocalClipboardManager.current
-    val selectedFilter by viewModel.selectedDateFilter.collectAsState()
     val transactions by viewModel.reportTransactions.collectAsState()
-    val topProducts by viewModel.topSellingProducts.collectAsState()
-    val paymentStats by viewModel.paymentMethodStats.collectAsState()
-    val netProfit by viewModel.netProfitFlow.collectAsState()
-    val grossProfit by viewModel.grossProfitFlow.collectAsState()
-    val totalExpenses by viewModel.totalExpensesFlow.collectAsState()
-    val expensesList by viewModel.expensesFlow.collectAsState()
-
-    val shiftClosings by viewModel.allShiftClosings.collectAsState()
     val storeProfile by viewModel.storeProfile.collectAsState()
 
-    val cloudUser by viewModel.cloudUser.collectAsState()
     val currentUser by viewModel.currentUser.collectAsState()
-    val isCloudSyncing by viewModel.isCloudSyncing.collectAsState()
-    val lastSyncStatus by viewModel.lastSyncStatus.collectAsState()
     val webDashboardUrl by viewModel.webDashboardUrl.collectAsState()
     val firebaseProjectId by viewModel.firebaseProjectId.collectAsState()
     val firebaseDatabaseId by viewModel.firebaseDatabaseId.collectAsState()
 
-    val unsyncedCount by viewModel.unsyncedCount.collectAsState()
-    val syncedCount by viewModel.syncedCount.collectAsState()
-    val isAutoSyncActive by viewModel.isAutoSyncActive.collectAsState()
     var syncStatusFilter by remember { mutableStateOf("ALL") }
 
-    val allDailyReports by viewModel.allDailyReports.collectAsState()
-    val isGeneratingReport by viewModel.isGeneratingReport.collectAsState()
+    val allTransactionsHistory by viewModel.allTransactionsHistory.collectAsState()
+    val allExpensesHistory by viewModel.allExpensesFlow.collectAsState()
+    val isExpenseSyncing by viewModel.isExpenseSyncing.collectAsState()
+    val expenseSyncStatus by viewModel.expenseSyncStatus.collectAsState()
     var selectedDailyReportForDetail by remember { mutableStateOf<DailyReport?>(null) }
-    var searchReportDate by remember { mutableStateOf("") }
 
-    var showWhatsAppDialog by remember { mutableStateOf(false) }
     var showWebHostingDialog by remember { mutableStateOf(false) }
-    var showAddExpenseDialog by remember { mutableStateOf(false) }
-    var showExpensesListDialog by remember { mutableStateOf(false) }
     var orderSearchQuery by remember { mutableStateOf("") }
+    var selectedMenuOption by remember { mutableStateOf<TransactionReportMenuOption?>(null) }
+    var showExpenseReportPanel by remember { mutableStateOf(false) }
+    var showQuickAddExpenseDialog by remember { mutableStateOf(false) }
+    var selectedKpDateMillis by remember { mutableStateOf(PosViewModel.getStartOfDay(0)) }
 
     val isAdmin = currentUser?.role == UserRole.ADMIN
+
+    androidx.compose.runtime.LaunchedEffect(isAdmin, showExpenseReportPanel, selectedMenuOption, allExpensesHistory.size) {
+        if (isAdmin) {
+            viewModel.syncExpensesForTransactionReportAuto(forceAll = showExpenseReportPanel)
+        }
+    }
+
+    val openWebChromeExpenseReport: () -> Unit = {
+        viewModel.syncExpensesForTransactionReportAuto(forceAll = false)
+        val url = viewModel.buildChromeWebReportUrl(
+            view = "trx-expenses",
+            dateMillis = selectedKpDateMillis
+        )
+        try {
+            context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
+        } catch (_: Exception) {
+            clipboardManager.setText(AnnotatedString(url))
+            Toast.makeText(context, "URL Web Chrome disalin: $url", Toast.LENGTH_LONG).show()
+        }
+    }
+
+    if (isAdmin && (selectedMenuOption != null || showExpenseReportPanel)) {
+        BackHandler {
+            if (showExpenseReportPanel) {
+                showExpenseReportPanel = false
+            } else {
+                selectedMenuOption = null
+            }
+        }
+    }
 
     // Filter transactions based on sync status filter and search query
     val filteredTransactions = remember(transactions, syncStatusFilter, orderSearchQuery, isAdmin) {
@@ -189,10 +212,7 @@ fun DailyReportScreen(viewModel: PosViewModel) {
         }
     }
 
-    // Compute live metrics
-    val totalRevenue = transactions.sumOf { it.grandTotal }
-    val totalTrxCount = transactions.size
-    val averageTicket = if (totalTrxCount > 0) totalRevenue / totalTrxCount else 0.0
+    // Keep lightweight summary helper variables if needed later
 
     Box(
         modifier = Modifier
@@ -203,7 +223,7 @@ fun DailyReportScreen(viewModel: PosViewModel) {
         LazyColumn(
             modifier = Modifier
                 .fillMaxWidth()
-                .widthIn(max = 820.dp),
+                .widthIn(max = 980.dp),
             contentPadding = PaddingValues(16.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
@@ -224,7 +244,7 @@ fun DailyReportScreen(viewModel: PosViewModel) {
                             color = MaterialTheme.colorScheme.onSurface
                         )
                         Text(
-                            text = "Laba Kotor, Pengeluaran, & Laba Bersih",
+                            text = "Record Transaksi Harian, Bulanan, Tahunan & Hosting",
                             fontSize = 12.sp,
                             color = Color(0xFF64748B)
                         )
@@ -257,366 +277,117 @@ fun DailyReportScreen(viewModel: PosViewModel) {
                 }
             }
 
-            // Date Range Filter Selector
-            item {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .horizontalScroll(rememberScrollState()),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    DateFilter.values().forEach { filter ->
-                        val isSelected = selectedFilter == filter
-                        FilterChip(
-                            selected = isSelected,
-                            onClick = { viewModel.setDateFilter(filter) },
-                            label = { Text(filter.label, fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal) },
-                            colors = FilterChipDefaults.filterChipColors(
-                                selectedContainerColor = MaterialTheme.colorScheme.primary,
-                                selectedLabelColor = Color.White
-                            )
-                        )
-                    }
+            if (showExpenseReportPanel) {
+                item {
+                    TransactionExpenseReportPanel(
+                        allTransactions = allTransactionsHistory,
+                        allExpenses = allExpensesHistory,
+                        storeProfile = storeProfile,
+                        selectedDateMillis = selectedKpDateMillis,
+                        onSelectedDateChange = { selectedKpDateMillis = PosViewModel.getStartOfDayForMillis(it) },
+                        onBackToMenu = { showExpenseReportPanel = false },
+                        onAddExpenseClick = { showQuickAddExpenseDialog = true },
+                        onDeleteExpense = { exp ->
+                            viewModel.deleteExpense(exp) { ok ->
+                                Toast.makeText(
+                                    context,
+                                    if (ok) "Pengeluaran '${exp.title}' dihapus & disinkronkan" else "Pengeluaran '${exp.title}' dihapus lokal",
+                                    Toast.LENGTH_SHORT
+                                ).show()
+                            }
+                        },
+                        isExpenseSyncing = isExpenseSyncing,
+                        expenseSyncStatus = expenseSyncStatus,
+                        onSyncExpensesNow = {
+                            viewModel.syncExpensesForTransactionReportAuto(forceAll = true) { ok, total ->
+                                Toast.makeText(
+                                    context,
+                                    if (total == 0) "Belum ada pengeluaran untuk disinkronkan" else "$ok/$total pengeluaran tersinkron ke Web Chrome",
+                                    Toast.LENGTH_SHORT
+                                ).show()
+                            }
+                        },
+                        onOpenWebChromeExpenses = openWebChromeExpenseReport
+                    )
                 }
-            }
-
-            // 1. KARTU LABA KOTOR
-            item {
-                Card(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .testTag("card_laba_kotor"),
-                    shape = RoundedCornerShape(16.dp),
-                    colors = CardDefaults.cardColors(containerColor = Color(0xFF0F172A)),
-                    border = BorderStroke(1.dp, Color(0xFF1E293B)),
-                    elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
-                ) {
-                    Column(modifier = Modifier.padding(18.dp)) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Surface(
-                                    shape = CircleShape,
-                                    color = Color(0xFF1E3A8A),
-                                    modifier = Modifier.size(42.dp)
-                                ) {
-                                    Box(contentAlignment = Alignment.Center) {
-                                        Icon(
-                                            imageVector = Icons.Default.TrendingUp,
-                                            contentDescription = null,
-                                            tint = Color(0xFF60A5FA),
-                                            modifier = Modifier.size(24.dp)
-                                        )
-                                    }
-                                }
-                                Spacer(modifier = Modifier.width(12.dp))
-                                Column {
-                                    Text(
-                                        text = "LABA KOTOR",
-                                        fontSize = 13.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        color = Color(0xFF94A3B8),
-                                        letterSpacing = 0.8.sp
-                                    )
-                                    Text(
-                                        text = "Penjualan kotor dikurangi modal HPP",
-                                        fontSize = 11.sp,
-                                        color = Color(0xFF64748B)
-                                    )
-                                }
-                            }
-
-                            Surface(
-                                shape = RoundedCornerShape(8.dp),
-                                color = Color(0xFF1E293B)
-                            ) {
-                                Text(
-                                    text = selectedFilter.label,
-                                    fontSize = 10.5.sp,
-                                    fontWeight = FontWeight.SemiBold,
-                                    color = Color(0xFF94A3B8),
-                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
-                                )
-                            }
-                        }
-
-                        Spacer(modifier = Modifier.height(14.dp))
-
-                        Text(
-                            text = BluetoothPrinterManager.formatRupiah(grossProfit),
-                            fontSize = 28.sp,
-                            fontWeight = FontWeight.Black,
-                            color = Color(0xFF38BDF8),
-                            modifier = Modifier.testTag("text_laba_kotor_amount")
-                        )
-
-                        Spacer(modifier = Modifier.height(8.dp))
-
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(10.dp)
-                        ) {
-                            Surface(
-                                shape = RoundedCornerShape(8.dp),
-                                color = Color(0xFF1E293B),
-                                modifier = Modifier.weight(1f)
-                            ) {
-                                Column(modifier = Modifier.padding(8.dp)) {
-                                    Text("Penjualan Kotor (Omset):", fontSize = 10.sp, color = Color(0xFF94A3B8))
-                                    Text(BluetoothPrinterManager.formatRupiah(totalRevenue), fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color(0xFFF1F5F9))
-                                }
-                            }
-                            val cogs = if (totalRevenue >= grossProfit) totalRevenue - grossProfit else 0.0
-                            Surface(
-                                shape = RoundedCornerShape(8.dp),
-                                color = Color(0xFF1E293B),
-                                modifier = Modifier.weight(1f)
-                            ) {
-                                Column(modifier = Modifier.padding(8.dp)) {
-                                    Text("Modal Produk (HPP):", fontSize = 10.sp, color = Color(0xFF94A3B8))
-                                    Text(BluetoothPrinterManager.formatRupiah(cogs), fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color(0xFFF1F5F9))
-                                }
-                            }
-                        }
-                    }
+            } else if (selectedMenuOption == null) {
+                item {
+                    TransactionReportMenuCard(
+                        onSelectOption = { option -> selectedMenuOption = option },
+                        onBackClick = { viewModel.selectTab(com.example.ui.MainTab.POS) },
+                        selectedDateMillis = selectedKpDateMillis,
+                        onSelectedDateChange = { selectedKpDateMillis = PosViewModel.getStartOfDayForMillis(it) },
+                        expenses = allExpensesHistory,
+                        onSelectExpenseReport = { showExpenseReportPanel = true },
+                        onAddExpenseClick = { showQuickAddExpenseDialog = true },
+                        isExpenseSyncing = isExpenseSyncing,
+                        expenseSyncStatus = expenseSyncStatus,
+                        onSyncExpensesNow = {
+                            viewModel.syncExpensesForTransactionReportAuto(forceAll = true)
+                        },
+                        onOpenWebChromeExpenses = openWebChromeExpenseReport
+                    )
                 }
-            }
-
-            // 2. KARTU PENGELUARAN (BEBAN OPERASIONAL)
-            item {
-                Card(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .testTag("card_pengeluaran"),
-                    shape = RoundedCornerShape(16.dp),
-                    colors = CardDefaults.cardColors(containerColor = Color(0xFF0F172A)),
-                    border = BorderStroke(1.dp, Color(0xFF3F1D28)),
-                    elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
-                ) {
-                    Column(modifier = Modifier.padding(18.dp)) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Surface(
-                                    shape = CircleShape,
-                                    color = Color(0xFF4C0519),
-                                    modifier = Modifier.size(42.dp)
-                                ) {
-                                    Box(contentAlignment = Alignment.Center) {
-                                        Icon(
-                                            imageVector = Icons.Default.Receipt,
-                                            contentDescription = null,
-                                            tint = Color(0xFFFB7185),
-                                            modifier = Modifier.size(24.dp)
-                                        )
-                                    }
-                                }
-                                Spacer(modifier = Modifier.width(12.dp))
-                                Column {
-                                    Text(
-                                        text = "PENGELUARAN",
-                                        fontSize = 13.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        color = Color(0xFFFDA4AF),
-                                        letterSpacing = 0.8.sp
-                                    )
-                                    Text(
-                                        text = "Biaya operasional & beban toko",
-                                        fontSize = 11.sp,
-                                        color = Color(0xFF94A3B8)
-                                    )
-                                }
-                            }
-
-                            Surface(
-                                shape = RoundedCornerShape(8.dp),
-                                color = Color(0xFF4C0519).copy(alpha = 0.6f)
-                            ) {
-                                Text(
-                                    text = "${expensesList.size} Catatan",
-                                    fontSize = 10.5.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = Color(0xFFFECDD3),
-                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
-                                )
-                            }
-                        }
-
-                        Spacer(modifier = Modifier.height(14.dp))
-
-                        Text(
-                            text = BluetoothPrinterManager.formatRupiah(totalExpenses),
-                            fontSize = 28.sp,
-                            fontWeight = FontWeight.Black,
-                            color = Color(0xFFFB7185),
-                            modifier = Modifier.testTag("text_pengeluaran_amount")
-                        )
-
-                        Spacer(modifier = Modifier.height(12.dp))
-
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            Button(
-                                onClick = { showAddExpenseDialog = true },
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .height(38.dp)
-                                    .testTag("btn_add_expense"),
-                                shape = RoundedCornerShape(8.dp),
-                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFE11D48))
-                            ) {
-                                Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(16.dp), tint = Color.White)
-                                Spacer(modifier = Modifier.width(4.dp))
-                                Text("Catat Pengeluaran", fontSize = 11.5.sp, fontWeight = FontWeight.Bold, color = Color.White)
-                            }
-
-                            if (expensesList.isNotEmpty()) {
-                                OutlinedButton(
-                                    onClick = { showExpensesListDialog = true },
-                                    modifier = Modifier
-                                        .weight(1f)
-                                        .height(38.dp)
-                                        .testTag("btn_view_expenses"),
-                                    shape = RoundedCornerShape(8.dp),
-                                    border = BorderStroke(1.dp, Color(0xFFFB7185)),
-                                    colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFFFB7185))
-                                ) {
-                                    Icon(Icons.Default.Assessment, contentDescription = null, modifier = Modifier.size(16.dp))
-                                    Spacer(modifier = Modifier.width(4.dp))
-                                    Text("Rincian Beban", fontSize = 11.5.sp, fontWeight = FontWeight.SemiBold)
-                                }
-                            }
-                        }
+            } else {
+                val activeOption = selectedMenuOption!!
+                item {
+                    val scopedTransactions = remember(allTransactionsHistory, activeOption, selectedKpDateMillis) {
+                        filterTransactionsByMenuOption(allTransactionsHistory, activeOption, selectedKpDateMillis)
                     }
-                }
-            }
-
-            // 3. KARTU LABA BERSIH (HERO NET PROFIT)
-            item {
-                Card(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .testTag("card_laba_bersih_hero"),
-                    shape = RoundedCornerShape(16.dp),
-                    colors = CardDefaults.cardColors(containerColor = Color(0xFF042F2E)),
-                    border = BorderStroke(1.5.dp, Color(0xFF0D9488)),
-                    elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)
-                ) {
-                    Column(
-                        modifier = Modifier.padding(22.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally
-                    ) {
-                        Surface(
-                            shape = CircleShape,
-                            color = Color(0xFF134E4A),
-                            modifier = Modifier.size(54.dp)
-                        ) {
-                            Box(contentAlignment = Alignment.Center) {
-                                Icon(
-                                    imageVector = Icons.Default.Payments,
-                                    contentDescription = null,
-                                    tint = Color(0xFF5EEAD4),
-                                    modifier = Modifier.size(28.dp)
-                                )
-                            }
-                        }
-
-                        Spacer(modifier = Modifier.height(12.dp))
-
-                        Text(
-                            text = "LABA BERSIH",
-                            fontSize = 13.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = Color(0xFF99F6E4),
-                            letterSpacing = 1.sp
-                        )
-
-                        Spacer(modifier = Modifier.height(6.dp))
-
-                        Text(
-                            text = BluetoothPrinterManager.formatRupiah(netProfit),
-                            fontSize = 34.sp,
-                            fontWeight = FontWeight.Black,
-                            color = Color(0xFF2DD4BF),
-                            modifier = Modifier.testTag("text_laba_bersih_amount")
-                        )
-
-                        Spacer(modifier = Modifier.height(8.dp))
-
-                        Surface(
-                            shape = RoundedCornerShape(8.dp),
-                            color = Color(0xFF115E59)
-                        ) {
-                            Text(
-                                text = "Laba Kotor (${BluetoothPrinterManager.formatRupiah(grossProfit)}) − Pengeluaran (${BluetoothPrinterManager.formatRupiah(totalExpenses)})",
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.SemiBold,
-                                color = Color(0xFFCCFBF1),
-                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
-                            )
-                        }
-
-                        Spacer(modifier = Modifier.height(18.dp))
-
-                        // Action Buttons: WhatsApp & Print
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(10.dp)
-                        ) {
-                            Button(
-                                onClick = { showWhatsAppDialog = true },
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .height(44.dp)
-                                    .testTag("btn_share_laba_wa"),
-                                shape = RoundedCornerShape(10.dp),
-                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF25D366))
-                            ) {
-                                Icon(Icons.Default.Chat, contentDescription = null, modifier = Modifier.size(18.dp), tint = Color.White)
-                                Spacer(modifier = Modifier.width(6.dp))
-                                Text("WhatsApp Owner", fontSize = 11.5.sp, fontWeight = FontWeight.Bold, color = Color.White)
-                            }
-
-                            Button(
-                                onClick = {
-                                    viewModel.printProfitExpenseReceipt(
-                                        grossProfit = grossProfit,
-                                        expenses = totalExpenses,
-                                        netProfit = netProfit,
-                                        grossSales = totalRevenue
-                                    ) { ok, msg ->
-                                        Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
-                                    }
-                                },
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .height(44.dp)
-                                    .testTag("btn_print_laba"),
-                                shape = RoundedCornerShape(10.dp),
-                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2563EB))
-                            ) {
-                                Icon(Icons.Default.Print, contentDescription = null, modifier = Modifier.size(18.dp), tint = Color.White)
-                                Spacer(modifier = Modifier.width(6.dp))
-                                Text("Cetak Struk", fontSize = 11.5.sp, fontWeight = FontWeight.Bold, color = Color.White)
-                            }
-                        }
+                    val scopedExpenses = remember(allExpensesHistory, activeOption, selectedKpDateMillis) {
+                        filterExpensesByMenuOption(allExpensesHistory, activeOption, selectedKpDateMillis)
                     }
+                    TransactionRecordReportSection(
+                        allTransactions = scopedTransactions,
+                        storeProfile = storeProfile,
+                        onDeletePeriod = { record ->
+                            viewModel.deleteTransactionsForPeriod(record.startTime, record.endTime) { ok ->
+                                Toast.makeText(
+                                    context,
+                                    if (ok) "Record ${record.fullPeriodTitle} dihapus" else "Gagal menghapus record",
+                                    Toast.LENGTH_SHORT
+                                ).show()
+                            }
+                        },
+                        onOpenReceipt = { trx -> viewModel.showReceiptFor(trx) },
+                        onDeleteSingleTransaction = { trx ->
+                            viewModel.deleteSingleTransaction(trx.id) { ok ->
+                                Toast.makeText(
+                                    context,
+                                    if (ok) "Transaksi ${trx.invoiceNumber} dihapus" else "Gagal menghapus transaksi",
+                                    Toast.LENGTH_SHORT
+                                ).show()
+                            }
+                        },
+                        initialPeriod = activeOption.defaultPeriod,
+                        menuOptionTitle = activeOption.title,
+                        onBackToMenu = { selectedMenuOption = null },
+                        selectedDateMillis = selectedKpDateMillis,
+                        onSelectedDateChange = { selectedKpDateMillis = PosViewModel.getStartOfDayForMillis(it) },
+                        allExpenses = scopedExpenses,
+                        onDeleteExpense = { exp ->
+                            viewModel.deleteExpense(exp) { ok ->
+                                Toast.makeText(
+                                    context,
+                                    if (ok) "Pengeluaran '${exp.title}' dihapus & disinkronkan" else "Pengeluaran '${exp.title}' dihapus lokal",
+                                    Toast.LENGTH_SHORT
+                                ).show()
+                            }
+                        },
+                        onAddExpenseClick = { showQuickAddExpenseDialog = true },
+                        isExpenseSyncing = isExpenseSyncing,
+                        expenseSyncStatus = expenseSyncStatus,
+                        onSyncExpensesNow = {
+                            viewModel.syncExpensesForTransactionReportAuto(forceAll = true)
+                        },
+                        onOpenWebChromeExpenses = openWebChromeExpenseReport
+                    )
                 }
             }
 
             // Callout Banner: Penyimpanan Database Arsip Laporan Dipindahkan ke Hosting
             item {
-                val separator = if (webDashboardUrl.contains("?")) "&" else "?"
-                val reportWebUrl = "$webDashboardUrl${separator}projectId=$firebaseProjectId&databaseId=$firebaseDatabaseId"
+                val reportWebUrl = viewModel.buildChromeWebReportUrl()
 
                 Card(
                     modifier = Modifier.fillMaxWidth(),
@@ -666,7 +437,7 @@ fun DailyReportScreen(viewModel: PosViewModel) {
                                 onClick = { viewModel.selectTab(com.example.ui.MainTab.CLOUD_HOSTING) },
                                 modifier = Modifier
                                     .weight(1f)
-                                    .height(40.dp)
+                                    .defaultMinSize(minHeight = 48.dp)
                                     .testTag("btn_go_to_hosting_tab"),
                                 shape = RoundedCornerShape(8.dp),
                                 colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0F172A))
@@ -687,7 +458,7 @@ fun DailyReportScreen(viewModel: PosViewModel) {
                                 },
                                 modifier = Modifier
                                     .weight(1.2f)
-                                    .height(40.dp)
+                                    .defaultMinSize(minHeight = 48.dp)
                                     .testTag("btn_open_web_hosting_chrome"),
                                 shape = RoundedCornerShape(8.dp),
                                 colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFEA580C))
@@ -696,6 +467,23 @@ fun DailyReportScreen(viewModel: PosViewModel) {
                                 Spacer(modifier = Modifier.width(6.dp))
                                 Text("Web Online Chrome", fontSize = 11.5.sp, fontWeight = FontWeight.Bold)
                             }
+                        }
+
+                        Spacer(modifier = Modifier.height(8.dp))
+
+                        OutlinedButton(
+                            onClick = { viewModel.selectTab(com.example.ui.MainTab.EXPENSES) },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .defaultMinSize(minHeight = 48.dp)
+                                .testTag("btn_open_expenses_menu"),
+                            shape = RoundedCornerShape(8.dp),
+                            border = BorderStroke(1.dp, Color(0xFFFDA4AF)),
+                            colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFFBE123C))
+                        ) {
+                            Icon(Icons.Default.Receipt, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("Buka Menu Catatan Pengeluaran (Auto-Sync Web)", fontSize = 11.5.sp, fontWeight = FontWeight.Bold)
                         }
                     }
                 }
@@ -799,47 +587,6 @@ fun DailyReportScreen(viewModel: PosViewModel) {
         }
     }
 
-    // Modal Kirim Laporan ke WhatsApp Owner
-    if (showWhatsAppDialog) {
-        val reportMessage = viewModel.generateWhatsAppProfitExpenseText(
-            grossProfit = grossProfit,
-            expenses = totalExpenses,
-            netProfit = netProfit,
-            grossSales = totalRevenue
-        )
-
-        WhatsAppSendDialog(
-            initialPhone = storeProfile.ownerPhone,
-            reportText = reportMessage,
-            onDismiss = { showWhatsAppDialog = false }
-        )
-    }
-
-    // Modal Tambah Pengeluaran Baru
-    if (showAddExpenseDialog) {
-        AddExpenseDialog(
-            onDismiss = { showAddExpenseDialog = false },
-            onSave = { title, amount, category, notes ->
-                viewModel.addExpense(title, amount, category, notes)
-                showAddExpenseDialog = false
-                Toast.makeText(context, "Pengeluaran ${BluetoothPrinterManager.formatRupiah(amount)} berhasil dicatat", Toast.LENGTH_SHORT).show()
-            }
-        )
-    }
-
-    // Modal Rincian Pengeluaran Toko
-    if (showExpensesListDialog) {
-        ExpensesListDialog(
-            expenses = expensesList,
-            totalExpenses = totalExpenses,
-            onDelete = { exp ->
-                viewModel.deleteExpense(exp)
-                Toast.makeText(context, "Catatan pengeluaran dihapus", Toast.LENGTH_SHORT).show()
-            },
-            onDismiss = { showExpensesListDialog = false }
-        )
-    }
-
     // Modal Pengaturan Hosting Web Owner
     if (showWebHostingDialog) {
         WebHostingConfigDialog(
@@ -869,7 +616,42 @@ fun DailyReportScreen(viewModel: PosViewModel) {
             }
         )
     }
+
+    if (showQuickAddExpenseDialog) {
+        val dateLabel = remember(selectedKpDateMillis) { formatKpDateShort(selectedKpDateMillis) }
+        AddExpenseDialog(
+            dateLabel = dateLabel,
+            onDismiss = { showQuickAddExpenseDialog = false },
+            onSave = { title, amount, category, notes ->
+                val targetTimestamp = combineExpenseDateWithCurrentTime(selectedKpDateMillis)
+                showQuickAddExpenseDialog = false
+                viewModel.addExpense(
+                    title = title,
+                    amount = amount,
+                    category = category,
+                    notes = notes,
+                    timestampMillis = targetTimestamp
+                ) { synced, msg ->
+                    Toast.makeText(
+                        context,
+                        if (synced) "Pengeluaran disimpan & tersinkron ke Web Chrome" else msg,
+                        Toast.LENGTH_SHORT
+                    ).show()
+                }
+            }
+        )
+    }
 }
+}
+
+private fun combineExpenseDateWithCurrentTime(selectedDateStartMillis: Long): Long {
+    val targetCal = java.util.Calendar.getInstance().apply { timeInMillis = selectedDateStartMillis }
+    val nowCal = java.util.Calendar.getInstance()
+    targetCal.set(java.util.Calendar.HOUR_OF_DAY, nowCal.get(java.util.Calendar.HOUR_OF_DAY))
+    targetCal.set(java.util.Calendar.MINUTE, nowCal.get(java.util.Calendar.MINUTE))
+    targetCal.set(java.util.Calendar.SECOND, nowCal.get(java.util.Calendar.SECOND))
+    targetCal.set(java.util.Calendar.MILLISECOND, 0)
+    return targetCal.timeInMillis
 }
 
 @Composable
@@ -990,7 +772,7 @@ fun WebHostingConfigDialog(
                             inputWebUrl = viewModel.defaultHostingUrl
                         }
                     ) {
-                        Text("Server AI Studio", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = Color(0xFF475569), modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp))
+                        Text("Server Web Lokal", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = Color(0xFF475569), modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp))
                     }
                 }
             }
@@ -2581,7 +2363,8 @@ fun DailyReportDetailDialog(
 @Composable
 fun AddExpenseDialog(
     onDismiss: () -> Unit,
-    onSave: (title: String, amount: Double, category: String, notes: String) -> Unit
+    onSave: (title: String, amount: Double, category: String, notes: String) -> Unit,
+    dateLabel: String? = null
 ) {
     var title by remember { mutableStateOf("") }
     var amountText by remember { mutableStateOf("") }
@@ -2622,10 +2405,15 @@ fun AddExpenseDialog(
                             }
                         }
                         Spacer(modifier = Modifier.width(10.dp))
-                        Text("Catat Pengeluaran", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                        Column {
+                            Text("Catat Pengeluaran", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                            if (!dateLabel.isNullOrBlank()) {
+                                Text("Tanggal: $dateLabel", fontSize = 11.sp, color = Color(0xFF64748B))
+                            }
+                        }
                     }
 
-                    IconButton(onClick = onDismiss, modifier = Modifier.size(28.dp)) {
+                    IconButton(onClick = onDismiss, modifier = Modifier.size(48.dp)) {
                         Icon(Icons.Default.Close, contentDescription = "Tutup")
                     }
                 }

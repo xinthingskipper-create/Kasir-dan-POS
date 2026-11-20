@@ -38,6 +38,9 @@ class PosRepository(private val database: PosDatabase) {
     fun getTotalExpensesBetween(startTime: Long, endTime: Long): Flow<Double?> =
         expenseDao.getTotalExpensesBetween(startTime, endTime)
 
+    fun getAllExpenses(): Flow<List<com.example.data.model.Expense>> =
+        expenseDao.getAllExpenses()
+
     suspend fun insertExpense(expense: com.example.data.model.Expense): Long = withContext(Dispatchers.IO) {
         expenseDao.insertExpense(expense)
     }
@@ -159,6 +162,16 @@ class PosRepository(private val database: PosDatabase) {
 
     fun getTransactionsBetween(startTime: Long, endTime: Long): Flow<List<Transaction>> =
         transactionDao.getTransactionsBetween(startTime, endTime)
+
+    suspend fun deleteTransactionsBetween(startTime: Long, endTime: Long) = withContext(Dispatchers.IO) {
+        transactionDao.deleteTransactionItemsBetween(startTime, endTime)
+        transactionDao.deleteTransactionsBetween(startTime, endTime)
+    }
+
+    suspend fun deleteTransactionById(transactionId: Long) = withContext(Dispatchers.IO) {
+        transactionDao.deleteItemsByTransactionId(transactionId)
+        transactionDao.deleteTransactionById(transactionId)
+    }
 
     suspend fun getItemsForTransaction(transactionId: Long): List<TransactionItem> = withContext(Dispatchers.IO) {
         transactionDao.getItemsForTransaction(transactionId)

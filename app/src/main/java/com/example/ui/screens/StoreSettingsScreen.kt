@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -35,6 +36,7 @@ import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.FileDownload
 import androidx.compose.material.icons.filled.FileUpload
 import androidx.compose.material.icons.filled.Language
+import androidx.compose.material.icons.filled.LockClock
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.NotificationsActive
 import androidx.compose.material.icons.filled.NotificationsOff
@@ -42,6 +44,7 @@ import androidx.compose.material.icons.filled.OpenInBrowser
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Restore
 import androidx.compose.material.icons.filled.Save
+import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Storage
@@ -51,6 +54,9 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -62,6 +68,8 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.TimePicker
+import androidx.compose.material3.rememberTimePickerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.collectAsState
@@ -125,6 +133,13 @@ fun StoreSettingsScreen(viewModel: PosViewModel) {
     val isBgServiceEnabled by viewModel.isBackgroundServiceEnabled.collectAsState()
     val isBgServiceRunning by viewModel.isBackgroundServiceRunning.collectAsState()
     val isLowStockNotifEnabled by viewModel.isLowStockNotifEnabled.collectAsState()
+
+    // Scheduled Auto Store Closing States
+    val isAutoCloseEnabled by viewModel.isAutoCloseEnabled.collectAsState()
+    val autoCloseHour by viewModel.autoCloseHour.collectAsState()
+    val autoCloseMinute by viewModel.autoCloseMinute.collectAsState()
+    val lastAutoCloseStatus by viewModel.lastAutoCloseStatus.collectAsState()
+    var showAutoCloseTimePicker by remember { mutableStateOf(false) }
 
     var hasNotifPermission by remember {
         mutableStateOf(com.example.service.PosNotificationHelper.hasNotificationPermission(context))
@@ -536,6 +551,251 @@ fun StoreSettingsScreen(viewModel: PosViewModel) {
                 }
             }
 
+            // --- KARTU 1B: TUTUP TOKO OTOMATIS BERJADWAL & KIRIM LAPORAN OTOMATIS ---
+            Card(
+                shape = RoundedCornerShape(12.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("auto_store_close_settings_card")
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Surface(
+                                shape = CircleShape,
+                                color = if (isAutoCloseEnabled) Color(0xFFFEF2F2) else Color(0xFFF1F5F9),
+                                modifier = Modifier.size(34.dp)
+                            ) {
+                                Box(contentAlignment = Alignment.Center) {
+                                    Icon(
+                                        imageVector = Icons.Default.LockClock,
+                                        contentDescription = "Ikon Tutup Toko Otomatis",
+                                        tint = if (isAutoCloseEnabled) Color(0xFFDC2626) else Color(0xFF64748B),
+                                        modifier = Modifier.size(20.dp)
+                                    )
+                                }
+                            }
+                            Spacer(modifier = Modifier.width(10.dp))
+                            Column {
+                                Text(
+                                    text = "Tutup Toko Otomatis Terjadwal",
+                                    style = MaterialTheme.typography.titleMedium,
+                                    fontWeight = FontWeight.Bold
+                                )
+                                Text(
+                                    text = "Otomatis tutup toko & kirim laporan ke Database pada jam tertentu",
+                                    fontSize = 11.sp,
+                                    color = Color(0xFF64748B)
+                                )
+                            }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    val formattedScheduleTime = com.example.service.AutoStoreCloseManager.formatTime(
+                        autoCloseHour,
+                        autoCloseMinute
+                    )
+                    val nextScheduleText = remember(isAutoCloseEnabled, autoCloseHour, autoCloseMinute, lastAutoCloseStatus) {
+                        viewModel.getNextAutoCloseDescription()
+                    }
+
+                    Surface(
+                        shape = RoundedCornerShape(8.dp),
+                        color = if (isAutoCloseEnabled) Color(0xFFF0FDF4) else Color(0xFFF8FAFC),
+                        border = BorderStroke(
+                            1.dp,
+                            if (isAutoCloseEnabled) Color(0xFFBBF7D0) else Color(0xFFE2E8F0)
+                        ),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Text(
+                                text = if (isAutoCloseEnabled) {
+                                    "🟢 Aktif • Jadwal berikutnya: $nextScheduleText"
+                                } else {
+                                    "⚪ Tutup Toko Otomatis Nonaktif"
+                                },
+                                fontSize = 11.5.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = if (isAutoCloseEnabled) Color(0xFF166534) else Color(0xFF475569),
+                                modifier = Modifier.weight(1f)
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Column(modifier = Modifier.weight(1f).padding(end = 12.dp)) {
+                            Text(
+                                text = "Aktifkan Tutup Toko Otomatis",
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                            Text(
+                                text = "Mengarsipkan omset & mengirim laporan harian ke Database Laporan secara otomatis setiap hari.",
+                                fontSize = 11.sp,
+                                color = Color(0xFF64748B)
+                            )
+                        }
+                        Switch(
+                            checked = isAutoCloseEnabled,
+                            onCheckedChange = { enabled ->
+                                if (enabled && Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU && !hasNotifPermission) {
+                                    notifPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+                                }
+                                viewModel.setAutoCloseSchedule(enabled, autoCloseHour, autoCloseMinute)
+                                Toast.makeText(
+                                    context,
+                                    if (enabled) {
+                                        "Tutup toko otomatis dijadwalkan pukul $formattedScheduleTime"
+                                    } else {
+                                        "Tutup toko otomatis dimatikan"
+                                    },
+                                    Toast.LENGTH_SHORT
+                                ).show()
+                            },
+                            colors = SwitchDefaults.colors(checkedTrackColor = Color(0xFFDC2626)),
+                            modifier = Modifier.testTag("switch_auto_close")
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    // Time Picker Card
+                    Surface(
+                        onClick = { showAutoCloseTimePicker = true },
+                        shape = RoundedCornerShape(10.dp),
+                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f),
+                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(min = 56.dp)
+                            .testTag("btn_pick_auto_close_time")
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 14.dp, vertical = 10.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(
+                                    imageVector = Icons.Default.Schedule,
+                                    contentDescription = "Atur Jam Tutup Toko",
+                                    tint = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.size(22.dp)
+                                )
+                                Spacer(modifier = Modifier.width(10.dp))
+                                Column {
+                                    Text(
+                                        text = "Jam Tutup Toko Otomatis",
+                                        fontSize = 11.5.sp,
+                                        color = Color(0xFF64748B)
+                                    )
+                                    Text(
+                                        text = "Pukul $formattedScheduleTime",
+                                        fontSize = 16.sp,
+                                        fontWeight = FontWeight.ExtraBold,
+                                        color = MaterialTheme.colorScheme.onSurface
+                                    )
+                                }
+                            }
+                            Surface(
+                                shape = RoundedCornerShape(8.dp),
+                                color = MaterialTheme.colorScheme.primary
+                            ) {
+                                Text(
+                                    text = "Ubah Jam",
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.onPrimary,
+                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
+                                )
+                            }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    // Quick Hour Presets
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        listOf(20, 21, 22, 23).forEach { presetHour ->
+                            val isPresetSelected = autoCloseHour == presetHour && autoCloseMinute == 0
+                            FilterChip(
+                                selected = isPresetSelected,
+                                onClick = {
+                                    viewModel.setAutoCloseSchedule(
+                                        enabled = isAutoCloseEnabled,
+                                        hour = presetHour,
+                                        minute = 0
+                                    )
+                                    Toast.makeText(
+                                        context,
+                                        "Jam tutup toko diatur ke ${String.format(java.util.Locale.US, "%02d:00", presetHour)}",
+                                        Toast.LENGTH_SHORT
+                                    ).show()
+                                },
+                                label = {
+                                    Text(
+                                        text = String.format(java.util.Locale.US, "%02d:00", presetHour),
+                                        fontSize = 11.sp,
+                                        fontWeight = if (isPresetSelected) FontWeight.Bold else FontWeight.Medium
+                                    )
+                                },
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .testTag("chip_auto_close_${presetHour}00"),
+                                colors = FilterChipDefaults.filterChipColors(
+                                    selectedContainerColor = MaterialTheme.colorScheme.primary,
+                                    selectedLabelColor = Color.White
+                                )
+                            )
+                        }
+                    }
+
+                    if (lastAutoCloseStatus.isNotBlank()) {
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Surface(
+                            shape = RoundedCornerShape(8.dp),
+                            color = Color(0xFFEFF6FF),
+                            border = BorderStroke(1.dp, Color(0xFFBFDBFE)),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text(
+                                text = lastAutoCloseStatus,
+                                fontSize = 11.sp,
+                                color = Color(0xFF1E3A8A),
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp)
+                            )
+                        }
+                    }
+                }
+            }
+
             // --- KARTU 2: PENGATURAN HOSTING & DATABASE WEB OWNER ---
             Card(
                 shape = RoundedCornerShape(12.dp),
@@ -712,7 +972,7 @@ fun StoreSettingsScreen(viewModel: PosViewModel) {
                                 }
                         ) {
                             Text(
-                                text = "Server AI Studio",
+                                text = "Server Web Lokal",
                                 fontSize = 10.sp,
                                 fontWeight = FontWeight.Bold,
                                 color = Color(0xFF475569),
@@ -782,11 +1042,15 @@ fun StoreSettingsScreen(viewModel: PosViewModel) {
                         OutlinedButton(
                             onClick = {
                                 try {
-                                    val targetUrl = if (inputWebUrl.startsWith("http://") || inputWebUrl.startsWith("https://")) {
-                                        inputWebUrl
-                                    } else {
-                                        "https://$inputWebUrl"
-                                    }
+                                    val trimmedInput = inputWebUrl.trim()
+                                    val normalizedInput = if (trimmedInput.isNotEmpty() && !trimmedInput.startsWith("http://", ignoreCase = true) && !trimmedInput.startsWith("https://", ignoreCase = true)) {
+                                        "https://$trimmedInput"
+                                    } else trimmedInput
+                                    val targetUrl = viewModel.buildReportUrl(
+                                        rawBaseUrl = normalizedInput,
+                                        projectId = inputProjectId,
+                                        databaseId = inputDatabaseId
+                                    )
                                     val browserIntent = Intent(Intent.ACTION_VIEW, Uri.parse(targetUrl))
                                     context.startActivity(browserIntent)
                                 } catch (e: Exception) {
@@ -1166,4 +1430,86 @@ fun StoreSettingsScreen(viewModel: PosViewModel) {
             }
         )
     }
+
+    // --- DIALOG 4: PEMILIH JAM TUTUP TOKO OTOMATIS ---
+    if (showAutoCloseTimePicker) {
+        AutoCloseTimePickerDialog(
+            initialHour = autoCloseHour,
+            initialMinute = autoCloseMinute,
+            onDismiss = { showAutoCloseTimePicker = false },
+            onConfirm = { pickedHour, pickedMinute ->
+                val enableOnPick = true
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU && !hasNotifPermission) {
+                    notifPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+                }
+                viewModel.setAutoCloseSchedule(
+                    enabled = enableOnPick,
+                    hour = pickedHour,
+                    minute = pickedMinute
+                )
+                showAutoCloseTimePicker = false
+                Toast.makeText(
+                    context,
+                    "Tutup toko otomatis aktif & dijadwalkan pukul ${com.example.service.AutoStoreCloseManager.formatTime(pickedHour, pickedMinute)}",
+                    Toast.LENGTH_LONG
+                ).show()
+            }
+        )
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun AutoCloseTimePickerDialog(
+    initialHour: Int,
+    initialMinute: Int,
+    onDismiss: () -> Unit,
+    onConfirm: (hour: Int, minute: Int) -> Unit
+) {
+    val timePickerState = rememberTimePickerState(
+        initialHour = initialHour.coerceIn(0, 23),
+        initialMinute = initialMinute.coerceIn(0, 59),
+        is24Hour = true
+    )
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Text(
+                text = "Atur Jam Tutup Toko Otomatis",
+                fontSize = 16.sp,
+                fontWeight = FontWeight.Bold
+            )
+        },
+        text = {
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text(
+                    text = "Pada jam ini, toko otomatis ditutup dan laporan dikirim ke Database Laporan.",
+                    fontSize = 11.5.sp,
+                    color = Color(0xFF64748B)
+                )
+                Spacer(modifier = Modifier.height(14.dp))
+                TimePicker(state = timePickerState)
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = { onConfirm(timePickerState.hour, timePickerState.minute) },
+                modifier = Modifier.testTag("btn_confirm_auto_close_time")
+            ) {
+                Text("Simpan Jadwal", fontWeight = FontWeight.Bold)
+            }
+        },
+        dismissButton = {
+            TextButton(
+                onClick = onDismiss,
+                modifier = Modifier.testTag("btn_cancel_auto_close_time")
+            ) {
+                Text("Batal")
+            }
+        }
+    )
 }
