@@ -1,8 +1,6 @@
-name: Build Android APK
+name: Build Android APK (Fahfile)
 
 on:
-  push:
-  pull_request:
   workflow_dispatch:
 
 permissions:
