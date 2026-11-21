@@ -22,8 +22,14 @@ interface ExpenseDao {
     @Query("SELECT SUM(amount) FROM expenses WHERE timestamp >= :startTime AND timestamp <= :endTime")
     fun getTotalExpensesBetween(startTime: Long, endTime: Long): Flow<Double?>
 
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertExpenses(expenses: List<Expense>)
+
     @Query("SELECT * FROM expenses ORDER BY timestamp DESC")
     fun getAllExpenses(): Flow<List<Expense>>
+
+    @Query("SELECT * FROM expenses ORDER BY timestamp ASC")
+    suspend fun getAllExpensesList(): List<Expense>
 
     @Delete
     suspend fun deleteExpense(expense: Expense)

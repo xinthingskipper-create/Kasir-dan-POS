@@ -228,11 +228,52 @@ class PosBackgroundService : Service() {
 
                         // 3. Check date rollover in background so midnight reset happens automatically
                         checkBackgroundDateRollover(prefs, dbId)
+
+                        // 4. Jalankan Auto Backup Google Drive terjadwal jika waktunya tiba
+                        checkScheduledDriveBackup(prefs)
                     } catch (t: Throwable) {
                         Log.w(TAG, "Periodic background sync error: ${t.message}")
                     }
                 }
             }
+        }
+    }
+
+    private suspend fun checkScheduledDriveBackup(prefs: android.content.SharedPreferences) {
+        try {
+            val enabled = prefs.getBoolean(DriveAutoBackupManager.KEY_DRIVE_AUTO_BACKUP_ENABLED, false)
+            val connected = prefs.getBoolean(DriveAutoBackupManager.KEY_DRIVE_CONNECTED, false)
+            if (!enabled || !connected) return
+
+            val freq = DriveBackupFrequency.fromId(
+                prefs.getString(
+                    DriveAutoBackupManager.KEY_DRIVE_AUTO_BACKUP_FREQUENCY,
+                    DriveBackupFrequency.DAILY_SCHEDULED.id
+                )
+            )
+            val hour = prefs.getInt(DriveAutoBackupManager.KEY_DRIVE_AUTO_BACKUP_HOUR, DriveAutoBackupManager.DEFAULT_HOUR)
+            val minute = prefs.getInt(DriveAutoBackupManager.KEY_DRIVE_AUTO_BACKUP_MINUTE, DriveAutoBackupManager.DEFAULT_MINUTE)
+            val lastDate = prefs.getString(DriveAutoBackupManager.KEY_LAST_DRIVE_BACKUP_DATE, "") ?: ""
+            val lastTs = prefs.getLong(DriveAutoBackupManager.KEY_LAST_DRIVE_BACKUP_TIMESTAMP, 0L)
+
+            if (DriveAutoBackupManager.shouldRunScheduledBackupFromService(
+                    enabled = enabled,
+                    connected = connected,
+                    frequency = freq,
+                    hour = hour,
+                    minute = minute,
+                    lastBackupDate = lastDate,
+                    lastBackupTimestamp = lastTs
+                )
+            ) {
+                DriveAutoBackupManager.performBackupToDrive(
+                    context = applicationContext,
+                    reason = "Auto Backup (${freq.label})",
+                    isManual = false
+                )
+            }
+        } catch (t: Throwable) {
+            Log.w(TAG, "Scheduled Drive backup check warning: ${t.message}")
         }
     }
 

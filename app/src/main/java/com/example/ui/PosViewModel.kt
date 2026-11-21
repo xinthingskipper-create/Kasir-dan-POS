@@ -21,8 +21,13 @@ import android.net.Uri
 import android.util.Log
 import com.example.data.repository.BackupRestoreManager
 import com.example.data.repository.BackupStats
+import com.example.data.repository.DriveAuthResult
+import com.example.data.repository.DriveBackupFile
 import com.example.data.repository.FirebaseSyncRepository
+import com.example.data.repository.GoogleDriveBackupManager
 import com.example.data.repository.PosRepository
+import com.example.service.DriveAutoBackupManager
+import com.example.service.DriveBackupFrequency
 import com.google.firebase.auth.FirebaseUser
 import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.Dispatchers
@@ -67,6 +72,14 @@ enum class MainTab(val title: String) {
     CLOUD_HOSTING("Hosting & Cloud")
 }
 
+enum class StoreSettingsCategory(val label: String, val subtitle: String) {
+    PROFILE("Profil & Struk", "Identitas toko, WhatsApp owner, dan catatan struk"),
+    OPERATIONAL("Operasional", "Kategori menu, satuan produk, dan jumlah meja"),
+    AUTOMATION("Layanan & Jadwal", "Layanan latar belakang, notif stok, dan tutup toko otomatis"),
+    HOSTING("Hosting & Web", "Firebase Project ID, Realtime Database, dan URL web"),
+    BACKUP("Backup & Restore", "Auto backup Google Drive serta ekspor & restore JSON lokal")
+}
+
 enum class DateFilter(val label: String) {
     TODAY("Hari Ini"),
     YESTERDAY("Kemarin"),
@@ -87,6 +100,7 @@ class PosViewModel(application: Application) : AndroidViewModel(application) {
     val printerManager = BluetoothPrinterManager(application)
     val firebaseSyncRepository = FirebaseSyncRepository(application)
     val backupRestoreManager = BackupRestoreManager(application, database)
+    val googleDriveBackupManager = GoogleDriveBackupManager(application)
 
     val cloudUser: StateFlow<FirebaseUser?> = firebaseSyncRepository.authStateFlow()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), firebaseSyncRepository.currentUser)
@@ -215,6 +229,7 @@ class PosViewModel(application: Application) : AndroidViewModel(application) {
             .putString("KEY_FIREBASE_DATABASE_ID", cleanDbId)
             .putString("KEY_WEB_HOSTING_URL", cleanUrl)
             .apply()
+        scheduleDebouncedDriveBackupIfActive("Perubahan Pengaturan Hosting")
     }
 
     fun resetWebHostingConfig() {
@@ -320,6 +335,7 @@ class PosViewModel(application: Application) : AndroidViewModel(application) {
                 com.example.service.PosBackgroundService.start(appContext)
             }
         }
+        scheduleDebouncedDriveBackupIfActive("Perubahan Jadwal Tutup Toko")
     }
 
     fun getNextAutoCloseDescription(): String {
@@ -341,6 +357,7 @@ class PosViewModel(application: Application) : AndroidViewModel(application) {
         } else {
             com.example.service.PosBackgroundService.stop(appContext)
         }
+        scheduleDebouncedDriveBackupIfActive("Perubahan Layanan Latar Belakang")
     }
 
     fun setLowStockNotifEnabled(enabled: Boolean) {
@@ -349,6 +366,7 @@ class PosViewModel(application: Application) : AndroidViewModel(application) {
         if (enabled) {
             checkLowStockAndNotify(forceAlert = true)
         }
+        scheduleDebouncedDriveBackupIfActive("Perubahan Notifikasi Stok")
     }
 
     fun ensureBackgroundServiceStarted() {
@@ -420,6 +438,16 @@ class PosViewModel(application: Application) : AndroidViewModel(application) {
 
         if (_isAutoCloseEnabled.value) {
             com.example.service.AutoStoreCloseManager.scheduleNextAlarm(application)
+        }
+        if (DriveAutoBackupManager.isAutoBackupEnabled(application)) {
+            DriveAutoBackupManager.schedulePeriodicBackup(application)
+        }
+        viewModelScope.launch(coroutineExceptionHandler) {
+            DriveAutoBackupManager.lastBackupEventMillis.collect { ts ->
+                if (ts > 0L) {
+                    reloadDriveStatusFromPrefs()
+                }
+            }
         }
         viewModelScope.launch(coroutineExceptionHandler) {
             com.example.service.AutoStoreCloseManager.lastAutoCloseEventMillis.collect { ts ->
@@ -515,8 +543,20 @@ class PosViewModel(application: Application) : AndroidViewModel(application) {
     private val _currentTab = MutableStateFlow(MainTab.POS)
     val currentTab: StateFlow<MainTab> = _currentTab.asStateFlow()
 
+    private val _selectedStoreSettingsCategory = MutableStateFlow(StoreSettingsCategory.PROFILE)
+    val selectedStoreSettingsCategory: StateFlow<StoreSettingsCategory> = _selectedStoreSettingsCategory.asStateFlow()
+
     fun navigateTo(screen: Screen) {
         _currentScreen.value = screen
+    }
+
+    fun selectStoreSettingsCategory(category: StoreSettingsCategory) {
+        _selectedStoreSettingsCategory.value = category
+    }
+
+    fun openStoreSettings(category: StoreSettingsCategory) {
+        _selectedStoreSettingsCategory.value = category
+        selectTab(MainTab.SETTINGS)
     }
 
     fun selectTab(tab: MainTab) {
@@ -648,6 +688,7 @@ class PosViewModel(application: Application) : AndroidViewModel(application) {
                 receiptFooter = footer.trim()
             )
             repository.updateStoreProfile(updated)
+            scheduleDebouncedDriveBackupIfActive("Perubahan Profil Toko")
 
             // Also sync store profile to Firebase Realtime Database & Hosting Relay
             try {
@@ -733,6 +774,7 @@ class PosViewModel(application: Application) : AndroidViewModel(application) {
         val updated = current + clean
         _configuredCategories.value = updated
         saveStringListPref(KEY_CUSTOM_CATEGORIES, updated)
+        scheduleDebouncedDriveBackupIfActive("Perubahan Kategori Menu")
         return true
     }
 
@@ -755,6 +797,7 @@ class PosViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             repository.renameProductCategory(cleanOld, cleanNew)
         }
+        scheduleDebouncedDriveBackupIfActive("Perubahan Nama Kategori")
         return true
     }
 
@@ -769,6 +812,7 @@ class PosViewModel(application: Application) : AndroidViewModel(application) {
         if (_selectedCategory.value?.equals(clean, ignoreCase = true) == true) {
             _selectedCategory.value = null
         }
+        scheduleDebouncedDriveBackupIfActive("Hapus Kategori Menu")
         return true
     }
 
@@ -780,6 +824,7 @@ class PosViewModel(application: Application) : AndroidViewModel(application) {
         val updated = current + clean
         _configuredUnits.value = updated
         saveStringListPref(KEY_CUSTOM_UNITS, updated)
+        scheduleDebouncedDriveBackupIfActive("Tambah Satuan Produk")
         return true
     }
 
@@ -796,6 +841,7 @@ class PosViewModel(application: Application) : AndroidViewModel(application) {
         if (updated.size == current.size) return false
         _configuredUnits.value = updated
         saveStringListPref(KEY_CUSTOM_UNITS, updated)
+        scheduleDebouncedDriveBackupIfActive("Hapus Satuan Produk")
         return true
     }
 
@@ -809,6 +855,7 @@ class PosViewModel(application: Application) : AndroidViewModel(application) {
         if (applyToExistingProducts) {
             applyUnitToCategoryProducts("Makanan", clean)
         }
+        scheduleDebouncedDriveBackupIfActive("Ubah Satuan Default Makanan")
     }
 
     fun setDrinkDefaultUnit(unit: String, applyToExistingProducts: Boolean = false) {
@@ -821,6 +868,7 @@ class PosViewModel(application: Application) : AndroidViewModel(application) {
         if (applyToExistingProducts) {
             applyUnitToCategoryProducts("Minuman", clean)
         }
+        scheduleDebouncedDriveBackupIfActive("Ubah Satuan Default Minuman")
     }
 
     fun applyUnitToCategoryProducts(category: String, unit: String) {
@@ -836,6 +884,7 @@ class PosViewModel(application: Application) : AndroidViewModel(application) {
         val clamped = count.coerceIn(0, 100)
         _tableCount.value = clamped
         prefs.edit().putInt(KEY_TABLE_COUNT, clamped).apply()
+        scheduleDebouncedDriveBackupIfActive("Ubah Jumlah Meja")
     }
 
     fun resetOperationalSettingsToDefaults() {
@@ -851,6 +900,7 @@ class PosViewModel(application: Application) : AndroidViewModel(application) {
             .putString(KEY_DRINK_DEFAULT_UNIT, DEFAULT_DRINK_UNIT)
             .putInt(KEY_TABLE_COUNT, DEFAULT_TABLE_COUNT)
             .apply()
+        scheduleDebouncedDriveBackupIfActive("Reset Pengaturan Operasional")
     }
 
     // --- Shift Closings (Tutup Kasir) ---
@@ -1047,6 +1097,15 @@ class PosViewModel(application: Application) : AndroidViewModel(application) {
                 }
                 _lastSyncStatus.value = statusMessage
                 Log.i("PosViewModel", statusMessage)
+
+                // Auto backup seluruh pengaturan & transaksi ke Google Drive saat Tutup Kasir
+                if (_driveAutoBackupEnabled.value && _driveBackupOnShiftClose.value && _driveConnected.value) {
+                    DriveAutoBackupManager.performBackupToDrive(
+                        context = getApplication(),
+                        reason = "Tutup Kasir (${user.fullName})",
+                        isManual = false
+                    )
+                }
             } catch (t: Throwable) {
                 Log.e("PosViewModel", "Error in automatic shift transactions sync", t)
                 _lastSyncStatus.value = "Tutup toko tersimpan lokal di Room DB (offline)"
@@ -1387,6 +1446,7 @@ class PosViewModel(application: Application) : AndroidViewModel(application) {
                     repository.updateSyncStatus(newTrxId, isSynced = false, syncedAt = null, error = e.localizedMessage)
                     _lastSyncStatus.value = "Tersimpan offline di Room DB (menunggu sinkron)"
                 }
+                scheduleDebouncedDriveBackupIfActive("Transaksi ${completedTrx.invoiceNumber}")
             }
         }
     }
@@ -2568,6 +2628,395 @@ class PosViewModel(application: Application) : AndroidViewModel(application) {
         _lastSyncStatus.value = "Keluar dari Firebase"
     }
 
+    // --- Google Drive Auto Backup & Restore ---
+    private val _driveConnected = MutableStateFlow(
+        prefs.getBoolean(DriveAutoBackupManager.KEY_DRIVE_CONNECTED, false)
+    )
+    val driveConnected: StateFlow<Boolean> = _driveConnected.asStateFlow()
+
+    private val _driveAccountEmail = MutableStateFlow(
+        prefs.getString(DriveAutoBackupManager.KEY_DRIVE_ACCOUNT_EMAIL, "") ?: ""
+    )
+    val driveAccountEmail: StateFlow<String> = _driveAccountEmail.asStateFlow()
+
+    private val _driveAutoBackupEnabled = MutableStateFlow(
+        prefs.getBoolean(DriveAutoBackupManager.KEY_DRIVE_AUTO_BACKUP_ENABLED, false)
+    )
+    val driveAutoBackupEnabled: StateFlow<Boolean> = _driveAutoBackupEnabled.asStateFlow()
+
+    private val _driveBackupFrequency = MutableStateFlow(
+        DriveBackupFrequency.fromId(
+            prefs.getString(
+                DriveAutoBackupManager.KEY_DRIVE_AUTO_BACKUP_FREQUENCY,
+                DriveBackupFrequency.DAILY_SCHEDULED.id
+            )
+        )
+    )
+    val driveBackupFrequency: StateFlow<DriveBackupFrequency> = _driveBackupFrequency.asStateFlow()
+
+    private val _driveBackupHour = MutableStateFlow(
+        prefs.getInt(DriveAutoBackupManager.KEY_DRIVE_AUTO_BACKUP_HOUR, DriveAutoBackupManager.DEFAULT_HOUR).coerceIn(0, 23)
+    )
+    val driveBackupHour: StateFlow<Int> = _driveBackupHour.asStateFlow()
+
+    private val _driveBackupMinute = MutableStateFlow(
+        prefs.getInt(DriveAutoBackupManager.KEY_DRIVE_AUTO_BACKUP_MINUTE, DriveAutoBackupManager.DEFAULT_MINUTE).coerceIn(0, 59)
+    )
+    val driveBackupMinute: StateFlow<Int> = _driveBackupMinute.asStateFlow()
+
+    private val _driveBackupWifiOnly = MutableStateFlow(
+        prefs.getBoolean(DriveAutoBackupManager.KEY_DRIVE_AUTO_BACKUP_WIFI_ONLY, false)
+    )
+    val driveBackupWifiOnly: StateFlow<Boolean> = _driveBackupWifiOnly.asStateFlow()
+
+    private val _driveBackupOnShiftClose = MutableStateFlow(
+        prefs.getBoolean(DriveAutoBackupManager.KEY_DRIVE_AUTO_BACKUP_ON_SHIFT_CLOSE, true)
+    )
+    val driveBackupOnShiftClose: StateFlow<Boolean> = _driveBackupOnShiftClose.asStateFlow()
+
+    private val _driveBackupKeepCount = MutableStateFlow(
+        prefs.getInt(DriveAutoBackupManager.KEY_DRIVE_AUTO_BACKUP_KEEP_COUNT, DriveAutoBackupManager.DEFAULT_KEEP_COUNT).coerceIn(0, 100)
+    )
+    val driveBackupKeepCount: StateFlow<Int> = _driveBackupKeepCount.asStateFlow()
+
+    private val _lastDriveBackupStatus = MutableStateFlow(
+        prefs.getString(DriveAutoBackupManager.KEY_LAST_DRIVE_BACKUP_STATUS, "") ?: ""
+    )
+    val lastDriveBackupStatus: StateFlow<String> = _lastDriveBackupStatus.asStateFlow()
+
+    private val _lastDriveBackupFile = MutableStateFlow(
+        prefs.getString(DriveAutoBackupManager.KEY_LAST_DRIVE_BACKUP_FILE, "") ?: ""
+    )
+    val lastDriveBackupFile: StateFlow<String> = _lastDriveBackupFile.asStateFlow()
+
+    private val _lastDriveBackupTimestamp = MutableStateFlow(
+        prefs.getLong(DriveAutoBackupManager.KEY_LAST_DRIVE_BACKUP_TIMESTAMP, 0L)
+    )
+    val lastDriveBackupTimestamp: StateFlow<Long> = _lastDriveBackupTimestamp.asStateFlow()
+
+    private val _isDriveBackingUp = MutableStateFlow(false)
+    val isDriveBackingUp: StateFlow<Boolean> = _isDriveBackingUp.asStateFlow()
+
+    private val _isDriveRestoring = MutableStateFlow(false)
+    val isDriveRestoring: StateFlow<Boolean> = _isDriveRestoring.asStateFlow()
+
+    private val _isLoadingDriveFiles = MutableStateFlow(false)
+    val isLoadingDriveFiles: StateFlow<Boolean> = _isLoadingDriveFiles.asStateFlow()
+
+    private val _driveBackupFiles = MutableStateFlow<List<DriveBackupFile>>(emptyList())
+    val driveBackupFiles: StateFlow<List<DriveBackupFile>> = _driveBackupFiles.asStateFlow()
+
+    private fun reloadDriveStatusFromPrefs() {
+        _lastDriveBackupStatus.value = prefs.getString(DriveAutoBackupManager.KEY_LAST_DRIVE_BACKUP_STATUS, "") ?: ""
+        _lastDriveBackupFile.value = prefs.getString(DriveAutoBackupManager.KEY_LAST_DRIVE_BACKUP_FILE, "") ?: ""
+        _lastDriveBackupTimestamp.value = prefs.getLong(DriveAutoBackupManager.KEY_LAST_DRIVE_BACKUP_TIMESTAMP, 0L)
+    }
+
+    fun refreshAllSettingsFromPrefs() {
+        _configuredCategories.value = loadStringListPref(KEY_CUSTOM_CATEGORIES, DEFAULT_CATEGORIES)
+        _configuredUnits.value = loadStringListPref(KEY_CUSTOM_UNITS, DEFAULT_UNITS)
+        _foodDefaultUnit.value = prefs.getString(KEY_FOOD_DEFAULT_UNIT, DEFAULT_FOOD_UNIT)
+            ?.trim()?.ifBlank { DEFAULT_FOOD_UNIT } ?: DEFAULT_FOOD_UNIT
+        _drinkDefaultUnit.value = prefs.getString(KEY_DRINK_DEFAULT_UNIT, DEFAULT_DRINK_UNIT)
+            ?.trim()?.ifBlank { DEFAULT_DRINK_UNIT } ?: DEFAULT_DRINK_UNIT
+        _tableCount.value = prefs.getInt(KEY_TABLE_COUNT, DEFAULT_TABLE_COUNT).coerceIn(0, 100)
+
+        prefs.getString("KEY_FIREBASE_PROJECT_ID", null)?.let { _firebaseProjectId.value = it }
+        prefs.getString("KEY_FIREBASE_DATABASE_ID", null)?.let { _firebaseDatabaseId.value = it }
+        prefs.getString("KEY_WEB_HOSTING_URL", null)?.let { _webDashboardUrl.value = resolveEffectiveHostingUrl(it) }
+
+        _isBackgroundServiceEnabled.value = prefs.getBoolean(
+            com.example.service.PosBackgroundService.KEY_BG_SERVICE_ENABLED, true
+        )
+        _isLowStockNotifEnabled.value = prefs.getBoolean(
+            com.example.service.PosBackgroundService.KEY_LOW_STOCK_NOTIF_ENABLED, true
+        )
+        _isAutoCloseEnabled.value = prefs.getBoolean(
+            com.example.service.AutoStoreCloseManager.KEY_AUTO_CLOSE_ENABLED, false
+        )
+        _autoCloseHour.value = prefs.getInt(
+            com.example.service.AutoStoreCloseManager.KEY_AUTO_CLOSE_HOUR,
+            com.example.service.AutoStoreCloseManager.DEFAULT_HOUR
+        ).coerceIn(0, 23)
+        _autoCloseMinute.value = prefs.getInt(
+            com.example.service.AutoStoreCloseManager.KEY_AUTO_CLOSE_MINUTE,
+            com.example.service.AutoStoreCloseManager.DEFAULT_MINUTE
+        ).coerceIn(0, 59)
+
+        _driveAutoBackupEnabled.value = prefs.getBoolean(
+            DriveAutoBackupManager.KEY_DRIVE_AUTO_BACKUP_ENABLED, false
+        )
+        _driveBackupFrequency.value = DriveBackupFrequency.fromId(
+            prefs.getString(DriveAutoBackupManager.KEY_DRIVE_AUTO_BACKUP_FREQUENCY, DriveBackupFrequency.DAILY_SCHEDULED.id)
+        )
+        _driveBackupHour.value = prefs.getInt(
+            DriveAutoBackupManager.KEY_DRIVE_AUTO_BACKUP_HOUR, DriveAutoBackupManager.DEFAULT_HOUR
+        ).coerceIn(0, 23)
+        _driveBackupMinute.value = prefs.getInt(
+            DriveAutoBackupManager.KEY_DRIVE_AUTO_BACKUP_MINUTE, DriveAutoBackupManager.DEFAULT_MINUTE
+        ).coerceIn(0, 59)
+        _driveBackupWifiOnly.value = prefs.getBoolean(
+            DriveAutoBackupManager.KEY_DRIVE_AUTO_BACKUP_WIFI_ONLY, false
+        )
+        _driveBackupOnShiftClose.value = prefs.getBoolean(
+            DriveAutoBackupManager.KEY_DRIVE_AUTO_BACKUP_ON_SHIFT_CLOSE, true
+        )
+        _driveBackupKeepCount.value = prefs.getInt(
+            DriveAutoBackupManager.KEY_DRIVE_AUTO_BACKUP_KEEP_COUNT, DriveAutoBackupManager.DEFAULT_KEEP_COUNT
+        ).coerceIn(0, 100)
+        reloadDriveStatusFromPrefs()
+
+        if (_isAutoCloseEnabled.value) {
+            com.example.service.AutoStoreCloseManager.scheduleNextAlarm(getApplication())
+        }
+        DriveAutoBackupManager.schedulePeriodicBackup(getApplication())
+    }
+
+    private fun scheduleDebouncedDriveBackupIfActive(reason: String) {
+        if (_driveAutoBackupEnabled.value && _driveConnected.value) {
+            DriveAutoBackupManager.triggerDebouncedAutoBackup(getApplication(), reason = reason)
+        }
+    }
+
+    fun startGoogleDriveAuthorization(
+        onNeedsResolution: (android.app.PendingIntent) -> Unit,
+        onAuthorized: (DriveAuthResult) -> Unit,
+        onError: (String) -> Unit
+    ) {
+        viewModelScope.launch(coroutineExceptionHandler) {
+            val res = googleDriveBackupManager.requestAuthorization()
+            res.onSuccess { authResult ->
+                if (authResult.needsResolution && authResult.pendingIntent != null) {
+                    onNeedsResolution(authResult.pendingIntent)
+                } else {
+                    saveDriveConnection(authResult.email)
+                    onAuthorized(authResult)
+                }
+            }.onFailure { err ->
+                onError(err.localizedMessage ?: "Gagal meminta izin Google Drive")
+            }
+        }
+    }
+
+    fun handleGoogleDriveAuthorizationIntent(
+        data: android.content.Intent?,
+        onSuccess: (String) -> Unit,
+        onError: (String) -> Unit
+    ) {
+        viewModelScope.launch(coroutineExceptionHandler) {
+            val res = googleDriveBackupManager.handleAuthorizationIntent(data)
+            res.onSuccess { authResult ->
+                saveDriveConnection(authResult.email)
+                onSuccess(authResult.email)
+            }.onFailure { err ->
+                onError(err.localizedMessage ?: "Gagal menghubungkan Google Drive")
+            }
+        }
+    }
+
+    private fun saveDriveConnection(email: String) {
+        val cleanEmail = email.trim()
+        _driveConnected.value = true
+        _driveAccountEmail.value = cleanEmail
+        prefs.edit()
+            .putBoolean(DriveAutoBackupManager.KEY_DRIVE_CONNECTED, true)
+            .putString(DriveAutoBackupManager.KEY_DRIVE_ACCOUNT_EMAIL, cleanEmail)
+            .apply()
+        if (_driveAutoBackupEnabled.value) {
+            DriveAutoBackupManager.schedulePeriodicBackup(getApplication())
+        }
+    }
+
+    fun disconnectGoogleDrive() {
+        viewModelScope.launch(coroutineExceptionHandler) {
+            googleDriveBackupManager.disconnectAccount()
+            _driveConnected.value = false
+            _driveAccountEmail.value = ""
+            _driveAutoBackupEnabled.value = false
+            _driveBackupFiles.value = emptyList()
+            prefs.edit()
+                .putBoolean(DriveAutoBackupManager.KEY_DRIVE_CONNECTED, false)
+                .putString(DriveAutoBackupManager.KEY_DRIVE_ACCOUNT_EMAIL, "")
+                .putBoolean(DriveAutoBackupManager.KEY_DRIVE_AUTO_BACKUP_ENABLED, false)
+                .apply()
+            DriveAutoBackupManager.schedulePeriodicBackup(getApplication())
+        }
+    }
+
+    fun setDriveAutoBackupEnabled(enabled: Boolean) {
+        _driveAutoBackupEnabled.value = enabled
+        prefs.edit()
+            .putBoolean(DriveAutoBackupManager.KEY_DRIVE_AUTO_BACKUP_ENABLED, enabled)
+            .apply()
+        DriveAutoBackupManager.schedulePeriodicBackup(getApplication())
+    }
+
+    fun setDriveBackupFrequency(frequency: DriveBackupFrequency) {
+        _driveBackupFrequency.value = frequency
+        prefs.edit()
+            .putString(DriveAutoBackupManager.KEY_DRIVE_AUTO_BACKUP_FREQUENCY, frequency.id)
+            .apply()
+        DriveAutoBackupManager.schedulePeriodicBackup(getApplication())
+    }
+
+    fun setDriveBackupScheduleTime(hour: Int, minute: Int) {
+        val cleanH = hour.coerceIn(0, 23)
+        val cleanM = minute.coerceIn(0, 59)
+        _driveBackupHour.value = cleanH
+        _driveBackupMinute.value = cleanM
+        prefs.edit()
+            .putInt(DriveAutoBackupManager.KEY_DRIVE_AUTO_BACKUP_HOUR, cleanH)
+            .putInt(DriveAutoBackupManager.KEY_DRIVE_AUTO_BACKUP_MINUTE, cleanM)
+            .apply()
+        DriveAutoBackupManager.schedulePeriodicBackup(getApplication())
+    }
+
+    fun setDriveBackupWifiOnly(wifiOnly: Boolean) {
+        _driveBackupWifiOnly.value = wifiOnly
+        prefs.edit()
+            .putBoolean(DriveAutoBackupManager.KEY_DRIVE_AUTO_BACKUP_WIFI_ONLY, wifiOnly)
+            .apply()
+        DriveAutoBackupManager.schedulePeriodicBackup(getApplication())
+    }
+
+    fun setDriveBackupOnShiftClose(enabled: Boolean) {
+        _driveBackupOnShiftClose.value = enabled
+        prefs.edit()
+            .putBoolean(DriveAutoBackupManager.KEY_DRIVE_AUTO_BACKUP_ON_SHIFT_CLOSE, enabled)
+            .apply()
+    }
+
+    fun setDriveBackupKeepCount(count: Int) {
+        val clamped = count.coerceIn(0, 100)
+        _driveBackupKeepCount.value = clamped
+        prefs.edit()
+            .putInt(DriveAutoBackupManager.KEY_DRIVE_AUTO_BACKUP_KEEP_COUNT, clamped)
+            .apply()
+    }
+
+    fun backupToGoogleDriveNow(
+        onSuccess: (String) -> Unit,
+        onNeedsReAuth: (android.app.PendingIntent) -> Unit,
+        onError: (String) -> Unit
+    ) {
+        viewModelScope.launch(coroutineExceptionHandler) {
+            _isDriveBackingUp.value = true
+            try {
+                val authRes = googleDriveBackupManager.requestAuthorization()
+                val auth = authRes.getOrElse { err ->
+                    onError(err.localizedMessage ?: "Gagal autentikasi Google Drive")
+                    return@launch
+                }
+                if (auth.needsResolution && auth.pendingIntent != null) {
+                    onNeedsReAuth(auth.pendingIntent)
+                    return@launch
+                }
+                val token = auth.accessToken
+                if (token.isNullOrBlank()) {
+                    onError("Token Google Drive tidak tersedia")
+                    return@launch
+                }
+                if (auth.email.isNotBlank()) {
+                    saveDriveConnection(auth.email)
+                }
+                val execResult = DriveAutoBackupManager.performUploadWithToken(
+                    context = getApplication(),
+                    accessToken = token,
+                    reason = "Backup Manual"
+                )
+                reloadDriveStatusFromPrefs()
+                if (execResult.success) {
+                    onSuccess(execResult.message)
+                } else {
+                    onError(execResult.message)
+                }
+            } catch (t: Throwable) {
+                onError(t.localizedMessage ?: "Gagal backup ke Google Drive")
+            } finally {
+                _isDriveBackingUp.value = false
+            }
+        }
+    }
+
+    fun fetchGoogleDriveBackups(
+        onNeedsReAuth: (android.app.PendingIntent) -> Unit,
+        onError: (String) -> Unit
+    ) {
+        viewModelScope.launch(coroutineExceptionHandler) {
+            _isLoadingDriveFiles.value = true
+            try {
+                val authRes = googleDriveBackupManager.requestAuthorization()
+                val auth = authRes.getOrElse { err ->
+                    onError(err.localizedMessage ?: "Gagal autentikasi Google Drive")
+                    return@launch
+                }
+                if (auth.needsResolution && auth.pendingIntent != null) {
+                    onNeedsReAuth(auth.pendingIntent)
+                    return@launch
+                }
+                val token = auth.accessToken ?: run {
+                    onError("Token Google Drive kosong")
+                    return@launch
+                }
+                if (auth.email.isNotBlank()) {
+                    saveDriveConnection(auth.email)
+                }
+                val listRes = googleDriveBackupManager.listBackupFiles(token)
+                listRes.onSuccess { files ->
+                    _driveBackupFiles.value = files
+                }.onFailure { err ->
+                    onError(err.localizedMessage ?: "Gagal mengambil daftar backup Google Drive")
+                }
+            } catch (t: Throwable) {
+                onError(t.localizedMessage ?: "Gagal memuat file Google Drive")
+            } finally {
+                _isLoadingDriveFiles.value = false
+            }
+        }
+    }
+
+    fun restoreFromGoogleDrive(
+        file: DriveBackupFile,
+        onSuccess: (BackupStats) -> Unit,
+        onNeedsReAuth: (android.app.PendingIntent) -> Unit,
+        onError: (String) -> Unit
+    ) {
+        viewModelScope.launch(coroutineExceptionHandler) {
+            _isDriveRestoring.value = true
+            try {
+                val authRes = googleDriveBackupManager.requestAuthorization()
+                val auth = authRes.getOrElse { err ->
+                    onError(err.localizedMessage ?: "Gagal autentikasi Google Drive")
+                    return@launch
+                }
+                if (auth.needsResolution && auth.pendingIntent != null) {
+                    onNeedsReAuth(auth.pendingIntent)
+                    return@launch
+                }
+                val token = auth.accessToken ?: run {
+                    onError("Token Google Drive kosong")
+                    return@launch
+                }
+                val downloadRes = googleDriveBackupManager.downloadBackupJson(token, file.id)
+                val jsonContent = downloadRes.getOrElse { err ->
+                    onError(err.localizedMessage ?: "Gagal mengunduh file dari Google Drive")
+                    return@launch
+                }
+                val restoreRes = backupRestoreManager.restoreFromJsonString(jsonContent)
+                restoreRes.onSuccess { stats ->
+                    refreshAllSettingsFromPrefs()
+                    onSuccess(stats)
+                }.onFailure { err ->
+                    onError("File backup rusak atau tidak valid: ${err.localizedMessage}")
+                }
+            } catch (t: Throwable) {
+                onError(t.localizedMessage ?: "Gagal memulihkan dari Google Drive")
+            } finally {
+                _isDriveRestoring.value = false
+            }
+        }
+    }
+
     // --- Local JSON Backup & Restore ---
     fun exportLocalBackup(onSuccess: (BackupStats) -> Unit, onError: (String) -> Unit) {
         viewModelScope.launch {
@@ -2585,6 +3034,7 @@ class PosViewModel(application: Application) : AndroidViewModel(application) {
             try {
                 val result = backupRestoreManager.restoreFromJsonString(jsonString)
                 if (result.isSuccess) {
+                    refreshAllSettingsFromPrefs()
                     onSuccess(result.getOrThrow())
                 } else {
                     onError("Format JSON tidak valid atau data rusak: ${result.exceptionOrNull()?.message}")

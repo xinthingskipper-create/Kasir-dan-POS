@@ -420,6 +420,21 @@ object AutoStoreCloseManager {
             // Jadwalkan otomatis untuk hari berikutnya
             scheduleNextAlarm(context, nowMillis + 60_000L)
 
+            // Auto Backup ke Google Drive setelah Tutup Toko Otomatis jika diaktifkan
+            try {
+                if (DriveAutoBackupManager.isAutoBackupEnabled(context) &&
+                    DriveAutoBackupManager.isBackupOnShiftCloseEnabled(context)
+                ) {
+                    DriveAutoBackupManager.performBackupToDrive(
+                        context = context.applicationContext,
+                        reason = "Tutup Toko Otomatis ($scheduleTimeText)",
+                        isManual = false
+                    )
+                }
+            } catch (tDrive: Throwable) {
+                Log.w(TAG, "Auto close Google Drive backup warning: ${tDrive.message}")
+            }
+
             // Kirim Push Notifikasi Tutup Toko Otomatis
             PosNotificationHelper.notifyStoreClosed(
                 context = context.applicationContext,

@@ -349,7 +349,7 @@ fun InventoryScreen(viewModel: PosViewModel) {
                 item {
                     FilterChip(
                         selected = false,
-                        onClick = { viewModel.selectTab(com.example.ui.MainTab.SETTINGS) },
+                        onClick = { viewModel.openStoreSettings(com.example.ui.StoreSettingsCategory.OPERATIONAL) },
                         leadingIcon = {
                             Icon(
                                 imageVector = Icons.Default.Tune,

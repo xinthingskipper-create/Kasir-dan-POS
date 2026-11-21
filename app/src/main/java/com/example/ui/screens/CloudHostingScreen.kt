@@ -1266,6 +1266,34 @@ fun CloudHostingScreen(
                                     unfocusedContainerColor = innerDark
                                 )
                             )
+
+                            Spacer(modifier = Modifier.height(10.dp))
+
+                            val isDriveConnected by viewModel.driveConnected.collectAsState()
+                            val isDriveAutoOn by viewModel.driveAutoBackupEnabled.collectAsState()
+                            val driveEmailLabel by viewModel.driveAccountEmail.collectAsState()
+                            Button(
+                                onClick = { viewModel.openStoreSettings(com.example.ui.StoreSettingsCategory.BACKUP) },
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .heightIn(min = 48.dp)
+                                    .testTag("btn_open_drive_backup_settings"),
+                                shape = RoundedCornerShape(10.dp),
+                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0284C7))
+                            ) {
+                                Icon(Icons.Default.Cloud, contentDescription = null, modifier = Modifier.size(17.dp))
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(
+                                    text = if (isDriveConnected) {
+                                        val stateTxt = if (isDriveAutoOn) "Auto ON" else "Manual"
+                                        "Auto Backup Google Drive ($stateTxt • ${driveEmailLabel.ifBlank { "Terhubung" }})"
+                                    } else {
+                                        "Atur Auto Backup Google Drive Sekarang"
+                                    },
+                                    fontSize = 11.5.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
                         }
                     }
                 }
