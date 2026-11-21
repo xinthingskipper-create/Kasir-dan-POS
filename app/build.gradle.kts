@@ -93,6 +93,84 @@ secrets {
 
 googleServices { missingGoogleServicesStrategy = MissingGoogleServicesStrategy.WARN }
 
+abstract class EnsureGoogleServicesJsonTask : org.gradle.api.DefaultTask() {
+  @get:org.gradle.api.tasks.Input
+  abstract val packageName: org.gradle.api.provider.Property<String>
+
+  @get:org.gradle.api.tasks.Internal
+  abstract val rootFile: org.gradle.api.file.RegularFileProperty
+
+  @get:org.gradle.api.tasks.Internal
+  abstract val debugFile: org.gradle.api.file.RegularFileProperty
+
+  @get:org.gradle.api.tasks.Internal
+  abstract val releaseFile: org.gradle.api.file.RegularFileProperty
+
+  @org.gradle.api.tasks.TaskAction
+  fun ensure() {
+    val target = rootFile.get().asFile
+    val dbg = debugFile.get().asFile
+    val rel = releaseFile.get().asFile
+    if ((target.exists() && target.length() > 0L) ||
+      (dbg.exists() && dbg.length() > 0L) ||
+      (rel.exists() && rel.length() > 0L)
+    ) {
+      return
+    }
+    val appId = packageName.get()
+    target.writeText(
+      """
+      {
+        "project_info": {
+          "project_number": "000000000000",
+          "project_id": "offline-pos-placeholder",
+          "storage_bucket": "offline-pos-placeholder.firebasestorage.app"
+        },
+        "client": [
+          {
+            "client_info": {
+              "mobilesdk_app_id": "1:000000000000:android:0000000000000000",
+              "android_client_info": {
+                "package_name": "$appId"
+              }
+            },
+            "oauth_client": [
+              {
+                "client_id": "000000000000-placeholder.apps.googleusercontent.com",
+                "client_type": 3
+              }
+            ],
+            "api_key": [
+              {
+                "current_key": "AIzaSyPlaceholderKeyForOfflineBuildOnly000"
+              }
+            ],
+            "services": {
+              "appinvite_service": {
+                "other_platform_oauth_client": []
+              }
+            }
+          }
+        ],
+        "configuration_version": "1"
+      }
+      """.trimIndent() + "\n"
+    )
+    logger.warn("app/google-services.json tidak ditemukan; konfigurasi fallback dibuat agar build tetap berjalan.")
+  }
+}
+
+val ensureGoogleServicesJson = tasks.register<EnsureGoogleServicesJsonTask>("ensureGoogleServicesJson") {
+  packageName.set(android.defaultConfig.applicationId ?: "com.example.app")
+  rootFile.set(layout.projectDirectory.file("google-services.json"))
+  debugFile.set(layout.projectDirectory.file("src/debug/google-services.json"))
+  releaseFile.set(layout.projectDirectory.file("src/release/google-services.json"))
+}
+
+tasks.matching { it.name.startsWith("process") && it.name.endsWith("GoogleServices") }.configureEach {
+  dependsOn(ensureGoogleServicesJson)
+}
+
 // Some unused dependencies are commented out below instead of being removed.
 // This makes it easy to add them back in the future if needed.
 dependencies {

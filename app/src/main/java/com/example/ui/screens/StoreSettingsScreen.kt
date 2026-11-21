@@ -175,6 +175,7 @@ fun StoreSettingsScreen(viewModel: PosViewModel) {
                                 StoreWebHostingSettingsSection(viewModel = viewModel)
                             }
                             StoreSettingsCategory.BACKUP -> {
+                                StoreCsvBackupSection(viewModel = viewModel)
                                 GoogleDriveBackupCard(viewModel = viewModel)
                                 StoreLocalBackupSection(viewModel = viewModel)
                             }

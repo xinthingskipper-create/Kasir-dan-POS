@@ -88,7 +88,8 @@ class StoreSettingsCategoryTabsTest {
             .performClick()
         composeTestRule.waitForIdle()
         assertEquals(StoreSettingsCategory.BACKUP, viewModel.selectedStoreSettingsCategory.value)
-        composeTestRule.onNodeWithTag("google_drive_backup_card").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("csv_backup_restore_card").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("google_drive_backup_card").performScrollTo().assertIsDisplayed()
         composeTestRule.onNodeWithTag("backup_restore_card").assertExists()
     }
 

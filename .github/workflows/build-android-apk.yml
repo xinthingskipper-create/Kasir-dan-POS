@@ -139,7 +139,10 @@ jobs:
         with:
           gradle-version: '9.3.1'
 
-      - name: Prepare .env and Debug Keystore
+      - name: Prepare .env, google-services.json, and Debug Keystore
+        env:
+          GOOGLE_SERVICES_JSON: ${{ secrets.GOOGLE_SERVICES_JSON }}
+          GOOGLE_SERVICES_JSON_BASE64: ${{ secrets.GOOGLE_SERVICES_JSON_BASE64 }}
         run: |
           if [ ! -f ".env" ]; then
             if [ -f ".env.example" ]; then
@@ -147,6 +150,54 @@ jobs:
             else
               touch .env
             fi
+          fi
+
+          if [ -n "${GOOGLE_SERVICES_JSON_BASE64:-}" ]; then
+            echo "$GOOGLE_SERVICES_JSON_BASE64" | base64 -d > app/google-services.json
+            echo "app/google-services.json didekodekan dari secret GOOGLE_SERVICES_JSON_BASE64"
+          elif [ -n "${GOOGLE_SERVICES_JSON:-}" ]; then
+            printf '%s\n' "$GOOGLE_SERVICES_JSON" > app/google-services.json
+            echo "app/google-services.json dibuat dari secret GOOGLE_SERVICES_JSON"
+          elif [ ! -s "app/google-services.json" ]; then
+            echo "::warning::app/google-services.json tidak ada di repositori; membuat konfigurasi fallback agar :app:processDebugGoogleServices berhasil. Tambahkan app/google-services.json atau secret GOOGLE_SERVICES_JSON untuk mengaktifkan layanan Firebase."
+            APP_ID=$(grep -E 'applicationId\s*=' app/build.gradle.kts | head -n 1 | sed -E 's/.*"([^"]+)".*/\1/' || true)
+            APP_ID="${APP_ID:-com.aistudio.poskasir.wrytxq}"
+            cat > app/google-services.json <<EOF
+          {
+            "project_info": {
+              "project_number": "000000000000",
+              "project_id": "offline-pos-placeholder",
+              "storage_bucket": "offline-pos-placeholder.firebasestorage.app"
+            },
+            "client": [
+              {
+                "client_info": {
+                  "mobilesdk_app_id": "1:000000000000:android:0000000000000000",
+                  "android_client_info": {
+                    "package_name": "${APP_ID}"
+                  }
+                },
+                "oauth_client": [
+                  {
+                    "client_id": "000000000000-placeholder.apps.googleusercontent.com",
+                    "client_type": 3
+                  }
+                ],
+                "api_key": [
+                  {
+                    "current_key": "AIzaSyPlaceholderKeyForOfflineBuildOnly000"
+                  }
+                ],
+                "services": {
+                  "appinvite_service": {
+                    "other_platform_oauth_client": []
+                  }
+                }
+              }
+            ],
+            "configuration_version": "1"
+          }
+          EOF
           fi
 
           if [ ! -f "debug.keystore" ] && [ -f "debug.keystore.base64" ]; then

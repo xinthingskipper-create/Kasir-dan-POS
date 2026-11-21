@@ -77,7 +77,7 @@ enum class StoreSettingsCategory(val label: String, val subtitle: String) {
     OPERATIONAL("Operasional", "Kategori menu, satuan produk, dan jumlah meja"),
     AUTOMATION("Layanan & Jadwal", "Layanan latar belakang, notif stok, dan tutup toko otomatis"),
     HOSTING("Hosting & Web", "Firebase Project ID, Realtime Database, dan URL web"),
-    BACKUP("Backup & Restore", "Auto backup Google Drive serta ekspor & restore JSON lokal")
+    BACKUP("Backup & Restore", "Auto backup Google Drive serta backup & restore offline (CSV / JSON)")
 }
 
 enum class DateFilter(val label: String) {
@@ -3047,6 +3047,34 @@ class PosViewModel(application: Application) : AndroidViewModel(application) {
 
     suspend fun readBackupJsonFromUri(uri: Uri): String {
         return backupRestoreManager.readJsonFromUri(uri)
+    }
+
+    // --- Offline CSV Backup & Restore (Shareable) ---
+    fun exportOfflineCsvBackup(onSuccess: (BackupStats) -> Unit, onError: (String) -> Unit) {
+        viewModelScope.launch {
+            try {
+                val stats = backupRestoreManager.exportCsvBackup()
+                onSuccess(stats)
+            } catch (e: Exception) {
+                onError("Gagal membuat backup CSV offline: ${e.message}")
+            }
+        }
+    }
+
+    fun restoreOfflineCsvBackup(csvString: String, onSuccess: (BackupStats) -> Unit, onError: (String) -> Unit) {
+        viewModelScope.launch {
+            try {
+                val result = backupRestoreManager.restoreFromCsvString(csvString)
+                if (result.isSuccess) {
+                    refreshAllSettingsFromPrefs()
+                    onSuccess(result.getOrThrow())
+                } else {
+                    onError("Format CSV tidak valid atau data rusak: ${result.exceptionOrNull()?.message}")
+                }
+            } catch (e: Exception) {
+                onError("Gagal memulihkan backup CSV: ${e.message}")
+            }
+        }
     }
 
     companion object {

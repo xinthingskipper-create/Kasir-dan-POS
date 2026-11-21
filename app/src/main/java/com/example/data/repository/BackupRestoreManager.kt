@@ -42,14 +42,82 @@ data class BackupStats(
     val filePath: String = "",
     val fileName: String = "",
     val fileUri: Uri? = null,
-    val jsonString: String = ""
+    val jsonString: String = "",
+    val csvString: String = "",
+    val format: String = "JSON"
 )
 
 class BackupRestoreManager(
     private val context: Context,
     private val database: PosDatabase
 ) {
+    private data class SnapshotData(
+        val rootJson: JSONObject,
+        val productCount: Int,
+        val transactionCount: Int,
+        val shiftCount: Int,
+        val userCount: Int,
+        val expenseCount: Int,
+        val dailyReportCount: Int
+    )
+
     suspend fun exportBackup(): BackupStats = withContext(Dispatchers.IO) {
+        val snapshot = buildSnapshotData()
+        val jsonString = snapshot.rootJson.toString(2)
+        val timeStamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.getDefault()).format(Date())
+        val fileName = "backup_kasirpos_$timeStamp.json"
+
+        val backupDir = File(context.filesDir, "backups").apply { if (!exists()) mkdirs() }
+        val backupFile = File(backupDir, fileName)
+        FileOutputStream(backupFile).use { fos ->
+            fos.write(jsonString.toByteArray(Charsets.UTF_8))
+        }
+
+        BackupStats(
+            productCount = snapshot.productCount,
+            transactionCount = snapshot.transactionCount,
+            shiftCount = snapshot.shiftCount,
+            userCount = snapshot.userCount,
+            expenseCount = snapshot.expenseCount,
+            dailyReportCount = snapshot.dailyReportCount,
+            settingsRestored = true,
+            filePath = backupFile.absolutePath,
+            fileName = fileName,
+            fileUri = null,
+            jsonString = jsonString,
+            format = "JSON"
+        )
+    }
+
+    suspend fun exportCsvBackup(): BackupStats = withContext(Dispatchers.IO) {
+        val snapshot = buildSnapshotData()
+        val csvString = CsvBackupCodec.encodeFromJsonSnapshot(snapshot.rootJson)
+        val timeStamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.getDefault()).format(Date())
+        val fileName = "backup_kasirpos_$timeStamp.csv"
+
+        val backupDir = File(context.filesDir, "backups").apply { if (!exists()) mkdirs() }
+        val backupFile = File(backupDir, fileName)
+        FileOutputStream(backupFile).use { fos ->
+            fos.write(csvString.toByteArray(Charsets.UTF_8))
+        }
+
+        BackupStats(
+            productCount = snapshot.productCount,
+            transactionCount = snapshot.transactionCount,
+            shiftCount = snapshot.shiftCount,
+            userCount = snapshot.userCount,
+            expenseCount = snapshot.expenseCount,
+            dailyReportCount = snapshot.dailyReportCount,
+            settingsRestored = true,
+            filePath = backupFile.absolutePath,
+            fileName = fileName,
+            fileUri = null,
+            csvString = csvString,
+            format = "CSV"
+        )
+    }
+
+    private suspend fun buildSnapshotData(): SnapshotData {
         val storeProfile = database.storeProfileDao().getStoreProfileSync() ?: StoreProfile()
         val cloudConfig = database.cloudHostingConfigDao().getConfigSync() ?: CloudHostingConfig()
         val products = database.productDao().getAllProductsList()
@@ -285,29 +353,27 @@ class BackupRestoreManager(
             put("dailyReports", dailyReportsArray)
         }
 
-        val jsonString = rootJson.toString(2)
-        val timeStamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.getDefault()).format(Date())
-        val fileName = "backup_kasirpos_$timeStamp.json"
-
-        val backupDir = File(context.filesDir, "backups").apply { if (!exists()) mkdirs() }
-        val backupFile = File(backupDir, fileName)
-        FileOutputStream(backupFile).use { fos ->
-            fos.write(jsonString.toByteArray(Charsets.UTF_8))
-        }
-
-        BackupStats(
+        return SnapshotData(
+            rootJson = rootJson,
             productCount = products.size,
             transactionCount = transactions.size,
             shiftCount = shiftClosings.size,
             userCount = users.size,
             expenseCount = expenses.size,
-            dailyReportCount = dailyReports.size,
-            settingsRestored = true,
-            filePath = backupFile.absolutePath,
-            fileName = fileName,
-            fileUri = null,
-            jsonString = jsonString
+            dailyReportCount = dailyReports.size
         )
+    }
+
+    suspend fun restoreFromCsvString(csvString: String): Result<BackupStats> = withContext(Dispatchers.IO) {
+        val decoded = CsvBackupCodec.decodeCsvToJsonSnapshot(csvString)
+        if (decoded.isFailure) {
+            return@withContext Result.failure(
+                decoded.exceptionOrNull() ?: IllegalArgumentException("Format CSV tidak valid")
+            )
+        }
+        val jsonObj = decoded.getOrThrow()
+        val restoreResult = restoreFromJsonString(jsonObj.toString())
+        restoreResult.map { stats -> stats.copy(format = "CSV") }
     }
 
     suspend fun restoreFromJsonString(jsonString: String): Result<BackupStats> = withContext(Dispatchers.IO) {
