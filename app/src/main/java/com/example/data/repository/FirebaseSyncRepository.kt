@@ -45,10 +45,13 @@ class FirebaseSyncRepository(private val context: Context) {
 
     private fun ensureFirebaseInitialized(): Boolean {
         return try {
+            if (isPlaceholderFirebaseConfig(context)) {
+                return false
+            }
             if (FirebaseApp.getApps(context).isEmpty()) {
                 FirebaseApp.initializeApp(context)
             }
-            true
+            FirebaseApp.getApps(context).isNotEmpty()
         } catch (t: Throwable) {
             Log.e("FirebaseSync", "FirebaseApp initialization check failed", t)
             false
@@ -155,6 +158,36 @@ class FirebaseSyncRepository(private val context: Context) {
 
     companion object {
         private val PLACEHOLDER_PREFIXES = listOf("ai-studio", "gen-lang-client", "laporan-service", "(default)")
+
+        fun isPlaceholderFirebaseValues(projectId: String?, appId: String?): Boolean {
+            val cleanProj = projectId?.trim()?.lowercase(Locale.ROOT).orEmpty()
+            val cleanAppId = appId?.trim()?.lowercase(Locale.ROOT).orEmpty()
+            if (cleanProj == "offline-pos-placeholder") return true
+            if (cleanAppId.contains(":000000000000:")) return true
+            if (cleanAppId.endsWith(":0000000000000000")) return true
+            return false
+        }
+
+        fun isPlaceholderFirebaseConfig(context: Context): Boolean {
+            return try {
+                val res = context.resources
+                val pkg = context.packageName
+                val projResId = res.getIdentifier("project_id", "string", pkg)
+                val appIdResId = res.getIdentifier("google_app_id", "string", pkg)
+                val projId = if (projResId != 0) context.getString(projResId) else null
+                val appId = if (appIdResId != 0) context.getString(appIdResId) else null
+                if (isPlaceholderFirebaseValues(projId, appId)) {
+                    return true
+                }
+                val appOpts = FirebaseApp.getApps(context).firstOrNull()?.options
+                if (appOpts != null && isPlaceholderFirebaseValues(appOpts.projectId, appOpts.applicationId)) {
+                    return true
+                }
+                false
+            } catch (_: Throwable) {
+                false
+            }
+        }
 
         fun isPlaceholderCloudId(value: String?): Boolean {
             val trimmed = value?.trim().orEmpty()

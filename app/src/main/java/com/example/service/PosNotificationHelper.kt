@@ -40,40 +40,43 @@ object PosNotificationHelper {
 
     fun ensureChannels(context: Context) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val nm = context.getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager ?: return
+            try {
+                val nm = context.getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager ?: return
 
-            val stockChannel = NotificationChannel(
-                CHANNEL_LOW_STOCK_ID,
-                "Peringatan Stok Makanan & Minuman",
-                NotificationManager.IMPORTANCE_HIGH
-            ).apply {
-                description = "Push notifikasi otomatis saat stok makanan, minuman, atau menu akan habis"
-                enableVibration(true)
-                enableLights(true)
+                val stockChannel = NotificationChannel(
+                    CHANNEL_LOW_STOCK_ID,
+                    "Peringatan Stok Makanan & Minuman",
+                    NotificationManager.IMPORTANCE_HIGH
+                ).apply {
+                    description = "Push notifikasi otomatis saat stok makanan, minuman, atau menu akan habis"
+                    enableVibration(true)
+                    enableLights(true)
+                }
+
+                val bgChannel = NotificationChannel(
+                    CHANNEL_BACKGROUND_ID,
+                    "Layanan Latar Belakang POS",
+                    NotificationManager.IMPORTANCE_LOW
+                ).apply {
+                    description = "Menjaga pemantauan stok dan sinkronisasi data tetap berjalan di latar belakang"
+                    setShowBadge(false)
+                }
+
+                val storeClosingChannel = NotificationChannel(
+                    CHANNEL_STORE_CLOSING_ID,
+                    "Notifikasi Tutup Toko & Kirim Laporan",
+                    NotificationManager.IMPORTANCE_HIGH
+                ).apply {
+                    description = "Notifikasi saat kasir menekan Tutup Toko atau saat tutup toko otomatis terjadwal mengirim laporan ke database"
+                    enableVibration(true)
+                    enableLights(true)
+                }
+
+                nm.createNotificationChannel(stockChannel)
+                nm.createNotificationChannel(bgChannel)
+                nm.createNotificationChannel(storeClosingChannel)
+            } catch (_: Throwable) {
             }
-
-            val bgChannel = NotificationChannel(
-                CHANNEL_BACKGROUND_ID,
-                "Layanan Latar Belakang POS",
-                NotificationManager.IMPORTANCE_LOW
-            ).apply {
-                description = "Menjaga pemantauan stok dan sinkronisasi data tetap berjalan di latar belakang"
-                setShowBadge(false)
-            }
-
-            val storeClosingChannel = NotificationChannel(
-                CHANNEL_STORE_CLOSING_ID,
-                "Notifikasi Tutup Toko & Kirim Laporan",
-                NotificationManager.IMPORTANCE_HIGH
-            ).apply {
-                description = "Notifikasi saat kasir menekan Tutup Toko atau saat tutup toko otomatis terjadwal mengirim laporan ke database"
-                enableVibration(true)
-                enableLights(true)
-            }
-
-            nm.createNotificationChannel(stockChannel)
-            nm.createNotificationChannel(bgChannel)
-            nm.createNotificationChannel(storeClosingChannel)
         }
     }
 
@@ -149,7 +152,7 @@ object PosNotificationHelper {
         val cleanStore = storeName.ifBlank { "Kasir POS" }
 
         return NotificationCompat.Builder(context, CHANNEL_BACKGROUND_ID)
-            .setSmallIcon(R.drawable.ic_pos_logo)
+            .setSmallIcon(R.drawable.ic_notification_pos)
             .setContentTitle("$cleanStore • Layanan Latar Belakang")
             .setContentText(statusLine)
             .setStyle(NotificationCompat.BigTextStyle().bigText(statusLine))
@@ -267,7 +270,7 @@ object PosNotificationHelper {
 
         val cleanStore = storeName.ifBlank { "Kasir POS" }
         val builder = NotificationCompat.Builder(context, CHANNEL_LOW_STOCK_ID)
-            .setSmallIcon(R.drawable.ic_pos_logo)
+            .setSmallIcon(R.drawable.ic_notification_pos)
             .setContentTitle(title)
             .setContentText(shortBody)
             .setSubText(cleanStore)
@@ -362,7 +365,7 @@ object PosNotificationHelper {
         }
 
         val builder = NotificationCompat.Builder(context, CHANNEL_STORE_CLOSING_ID)
-            .setSmallIcon(R.drawable.ic_pos_logo)
+            .setSmallIcon(R.drawable.ic_notification_pos)
             .setContentTitle(title)
             .setContentText(shortText)
             .setSubText(cleanStore)

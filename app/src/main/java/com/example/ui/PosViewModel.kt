@@ -103,7 +103,7 @@ class PosViewModel(application: Application) : AndroidViewModel(application) {
     val googleDriveBackupManager = GoogleDriveBackupManager(application)
 
     val cloudUser: StateFlow<FirebaseUser?> = firebaseSyncRepository.authStateFlow()
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), firebaseSyncRepository.currentUser)
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
 
     private val _isCloudSyncing = MutableStateFlow(false)
     val isCloudSyncing: StateFlow<Boolean> = _isCloudSyncing.asStateFlow()
@@ -425,8 +425,28 @@ class PosViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     init {
-        com.example.service.LocalWebReportServer.start(application, database)
-        _webDashboardUrl.value = resolveEffectiveHostingUrl(_webDashboardUrl.value)
+        viewModelScope.launch(Dispatchers.IO + coroutineExceptionHandler) {
+            try {
+                com.example.service.LocalWebReportServer.start(application, database)
+                _webDashboardUrl.value = resolveEffectiveHostingUrl(_webDashboardUrl.value)
+            } catch (t: Throwable) {
+                Log.w("PosViewModel", "LocalWebReportServer startup note: ${t.message}")
+            }
+            try {
+                if (_isAutoCloseEnabled.value) {
+                    com.example.service.AutoStoreCloseManager.scheduleNextAlarm(application)
+                }
+            } catch (t: Throwable) {
+                Log.w("PosViewModel", "AutoStoreCloseManager schedule note: ${t.message}")
+            }
+            try {
+                if (DriveAutoBackupManager.isAutoBackupEnabled(application)) {
+                    DriveAutoBackupManager.schedulePeriodicBackup(application)
+                }
+            } catch (t: Throwable) {
+                Log.w("PosViewModel", "DriveAutoBackupManager schedule note: ${t.message}")
+            }
+        }
 
         viewModelScope.launch(coroutineExceptionHandler) {
             com.example.service.LocalWebReportServer.serverUrlFlow.collect { url ->
@@ -434,13 +454,6 @@ class PosViewModel(application: Application) : AndroidViewModel(application) {
                     _webDashboardUrl.value = resolveEffectiveHostingUrl(_webDashboardUrl.value)
                 }
             }
-        }
-
-        if (_isAutoCloseEnabled.value) {
-            com.example.service.AutoStoreCloseManager.scheduleNextAlarm(application)
-        }
-        if (DriveAutoBackupManager.isAutoBackupEnabled(application)) {
-            DriveAutoBackupManager.schedulePeriodicBackup(application)
         }
         viewModelScope.launch(coroutineExceptionHandler) {
             DriveAutoBackupManager.lastBackupEventMillis.collect { ts ->

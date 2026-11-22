@@ -2,6 +2,7 @@ package com.example
 
 import android.app.Application
 import android.util.Log
+import com.example.data.repository.FirebaseSyncRepository
 import com.google.firebase.FirebaseApp
 
 /**
@@ -31,6 +32,10 @@ class PosApplication : Application() {
 
     private fun initializeFirebaseSafely() {
         try {
+            if (FirebaseSyncRepository.isPlaceholderFirebaseConfig(this)) {
+                Log.i("PosApplication", "Placeholder google-services config detected; skipping FirebaseApp initialization")
+                return
+            }
             if (FirebaseApp.getApps(this).isEmpty()) {
                 val app = FirebaseApp.initializeApp(this)
                 Log.i("PosApplication", "FirebaseApp initialized successfully: ${app?.name}")

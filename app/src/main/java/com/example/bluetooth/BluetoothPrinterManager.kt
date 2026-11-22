@@ -3,6 +3,7 @@ package com.example.bluetooth
 import android.annotation.SuppressLint
 import android.bluetooth.BluetoothAdapter
 import android.bluetooth.BluetoothDevice
+import android.bluetooth.BluetoothManager
 import android.bluetooth.BluetoothSocket
 import android.content.Context
 import android.util.Log
@@ -30,7 +31,14 @@ data class PrinterDevice(
 
 class BluetoothPrinterManager(private val context: Context) {
 
-    private val bluetoothAdapter: BluetoothAdapter? = BluetoothAdapter.getDefaultAdapter()
+    private val bluetoothAdapter: BluetoothAdapter?
+        get() = try {
+            val manager = context.applicationContext.getSystemService(Context.BLUETOOTH_SERVICE) as? BluetoothManager
+            manager?.adapter ?: @Suppress("DEPRECATION") BluetoothAdapter.getDefaultAdapter()
+        } catch (t: Throwable) {
+            Log.w("BluetoothPrinter", "Bluetooth adapter unavailable: ${t.message}")
+            null
+        }
     private var socket: BluetoothSocket? = null
     private var outputStream: OutputStream? = null
 
@@ -54,9 +62,10 @@ class BluetoothPrinterManager(private val context: Context) {
     fun getPairedDevices(): List<PrinterDevice> {
         val list = mutableListOf<PrinterDevice>()
         try {
-            if (bluetoothAdapter == null || !isBluetoothEnabled) return list
+            val adapter = bluetoothAdapter
+            if (adapter == null || !isBluetoothEnabled) return list
 
-            val paired = bluetoothAdapter.bondedDevices
+            val paired = adapter.bondedDevices
             paired?.forEach { device ->
                 try {
                     list.add(
@@ -78,7 +87,8 @@ class BluetoothPrinterManager(private val context: Context) {
 
     @SuppressLint("MissingPermission")
     suspend fun connectToDevice(address: String): Boolean = withContext(Dispatchers.IO) {
-        if (bluetoothAdapter == null) {
+        val adapter = bluetoothAdapter
+        if (adapter == null) {
             _printStatus.value = "Bluetooth tidak didukung pada perangkat ini"
             return@withContext false
         }
@@ -86,7 +96,7 @@ class BluetoothPrinterManager(private val context: Context) {
         try {
             disconnect()
             val device = try {
-                bluetoothAdapter.getRemoteDevice(address)
+                adapter.getRemoteDevice(address)
             } catch (t: Throwable) {
                 _printStatus.value = "Alamat printer tidak valid: ${t.localizedMessage}"
                 return@withContext false

@@ -54,8 +54,10 @@ class PosBackgroundService : Service() {
         database = PosDatabase.getDatabase(applicationContext)
         repository = PosRepository(database)
         firebaseSyncRepository = FirebaseSyncRepository(applicationContext)
-        LocalWebReportServer.start(applicationContext, database)
         PosNotificationHelper.ensureChannels(this)
+        serviceScope.launch {
+            LocalWebReportServer.start(applicationContext, database)
+        }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -70,7 +72,10 @@ class PosBackgroundService : Service() {
                 return START_NOT_STICKY
             }
             ACTION_CHECK_STOCK -> {
-                promoteToForeground()
+                if (!promoteToForeground()) {
+                    stopMonitoringAndSelf()
+                    return START_NOT_STICKY
+                }
                 startLoopsIfNeeded()
                 serviceScope.launch {
                     checkLowStockOnce(forceAlert = true)
@@ -78,15 +83,18 @@ class PosBackgroundService : Service() {
                 return START_STICKY
             }
             else -> {
-                promoteToForeground()
+                if (!promoteToForeground()) {
+                    stopMonitoringAndSelf()
+                    return START_NOT_STICKY
+                }
                 startLoopsIfNeeded()
                 return START_STICKY
             }
         }
     }
 
-    private fun promoteToForeground() {
-        try {
+    private fun promoteToForeground(): Boolean {
+        return try {
             val notification = PosNotificationHelper.buildForegroundServiceNotification(
                 context = this,
                 storeName = cachedStoreName,
@@ -105,9 +113,11 @@ class PosBackgroundService : Service() {
                 fgType
             )
             _isRunning.value = true
+            true
         } catch (t: Throwable) {
             Log.e(TAG, "Unable to promote service to foreground: ${t.message}", t)
             _isRunning.value = false
+            false
         }
     }
 

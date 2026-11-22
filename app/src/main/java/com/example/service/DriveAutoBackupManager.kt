@@ -150,40 +150,44 @@ object DriveAutoBackupManager {
             return
         }
 
-        if (!enabled || frequency.intervalHours == null) {
-            workManager.cancelUniqueWork(PERIODIC_WORK_NAME)
-            return
+        try {
+            if (!enabled || frequency.intervalHours == null) {
+                workManager.cancelUniqueWork(PERIODIC_WORK_NAME)
+                return
+            }
+
+            val intervalHours = frequency.intervalHours
+            val initialDelayMinutes = if (
+                frequency == DriveBackupFrequency.DAILY_SCHEDULED ||
+                frequency == DriveBackupFrequency.REALTIME_AND_DAILY
+            ) {
+                val hour = prefs.getInt(KEY_DRIVE_AUTO_BACKUP_HOUR, DEFAULT_HOUR).coerceIn(0, 23)
+                val minute = prefs.getInt(KEY_DRIVE_AUTO_BACKUP_MINUTE, DEFAULT_MINUTE).coerceIn(0, 59)
+                computeInitialDelayMinutesForTime(hour, minute)
+            } else {
+                15L
+            }
+
+            val constraints = Constraints.Builder()
+                .setRequiredNetworkType(if (wifiOnly) NetworkType.UNMETERED else NetworkType.CONNECTED)
+                .build()
+
+            val request = PeriodicWorkRequestBuilder<DriveAutoBackupWorker>(intervalHours, TimeUnit.HOURS)
+                .setInitialDelay(initialDelayMinutes, TimeUnit.MINUTES)
+                .setConstraints(constraints)
+                .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 15, TimeUnit.MINUTES)
+                .setInputData(workDataOf(DriveAutoBackupWorker.KEY_REASON to "Jadwal Otomatis (${frequency.label})"))
+                .build()
+
+            workManager.enqueueUniquePeriodicWork(
+                PERIODIC_WORK_NAME,
+                ExistingPeriodicWorkPolicy.UPDATE,
+                request
+            )
+            Log.d(TAG, "Scheduled Google Drive periodic backup: ${frequency.label}, initialDelay=${initialDelayMinutes}m, wifiOnly=$wifiOnly")
+        } catch (t: Throwable) {
+            Log.w(TAG, "Failed scheduling periodic backup safely: ${t.message}")
         }
-
-        val intervalHours = frequency.intervalHours
-        val initialDelayMinutes = if (
-            frequency == DriveBackupFrequency.DAILY_SCHEDULED ||
-            frequency == DriveBackupFrequency.REALTIME_AND_DAILY
-        ) {
-            val hour = prefs.getInt(KEY_DRIVE_AUTO_BACKUP_HOUR, DEFAULT_HOUR).coerceIn(0, 23)
-            val minute = prefs.getInt(KEY_DRIVE_AUTO_BACKUP_MINUTE, DEFAULT_MINUTE).coerceIn(0, 59)
-            computeInitialDelayMinutesForTime(hour, minute)
-        } else {
-            15L
-        }
-
-        val constraints = Constraints.Builder()
-            .setRequiredNetworkType(if (wifiOnly) NetworkType.UNMETERED else NetworkType.CONNECTED)
-            .build()
-
-        val request = PeriodicWorkRequestBuilder<DriveAutoBackupWorker>(intervalHours, TimeUnit.HOURS)
-            .setInitialDelay(initialDelayMinutes, TimeUnit.MINUTES)
-            .setConstraints(constraints)
-            .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 15, TimeUnit.MINUTES)
-            .setInputData(workDataOf(DriveAutoBackupWorker.KEY_REASON to "Jadwal Otomatis (${frequency.label})"))
-            .build()
-
-        workManager.enqueueUniquePeriodicWork(
-            PERIODIC_WORK_NAME,
-            ExistingPeriodicWorkPolicy.UPDATE,
-            request
-        )
-        Log.d(TAG, "Scheduled Google Drive periodic backup: ${frequency.label}, initialDelay=${initialDelayMinutes}m, wifiOnly=$wifiOnly")
     }
 
     fun triggerDebouncedAutoBackup(
@@ -206,21 +210,25 @@ object DriveAutoBackupManager {
             return
         }
 
-        val constraints = Constraints.Builder()
-            .setRequiredNetworkType(if (wifiOnly) NetworkType.UNMETERED else NetworkType.CONNECTED)
-            .build()
+        try {
+            val constraints = Constraints.Builder()
+                .setRequiredNetworkType(if (wifiOnly) NetworkType.UNMETERED else NetworkType.CONNECTED)
+                .build()
 
-        val req = OneTimeWorkRequestBuilder<DriveAutoBackupWorker>()
-            .setInitialDelay(delaySeconds.coerceAtLeast(5L), TimeUnit.SECONDS)
-            .setConstraints(constraints)
-            .setInputData(workDataOf(DriveAutoBackupWorker.KEY_REASON to reason))
-            .build()
+            val req = OneTimeWorkRequestBuilder<DriveAutoBackupWorker>()
+                .setInitialDelay(delaySeconds.coerceAtLeast(5L), TimeUnit.SECONDS)
+                .setConstraints(constraints)
+                .setInputData(workDataOf(DriveAutoBackupWorker.KEY_REASON to reason))
+                .build()
 
-        workManager.enqueueUniqueWork(
-            DEBOUNCED_WORK_NAME,
-            ExistingWorkPolicy.REPLACE,
-            req
-        )
+            workManager.enqueueUniqueWork(
+                DEBOUNCED_WORK_NAME,
+                ExistingWorkPolicy.REPLACE,
+                req
+            )
+        } catch (t: Throwable) {
+            Log.w(TAG, "Failed scheduling debounced backup safely: ${t.message}")
+        }
     }
 
     fun computeInitialDelayMinutesForTime(

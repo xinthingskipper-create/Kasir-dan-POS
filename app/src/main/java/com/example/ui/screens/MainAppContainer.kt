@@ -53,7 +53,10 @@ fun MainAppContainer(viewModel: PosViewModel) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
             !com.example.service.PosNotificationHelper.hasNotificationPermission(context)
         ) {
-            notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+            try {
+                notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+            } catch (_: Throwable) {
+            }
         }
     }
 
@@ -104,10 +107,11 @@ fun MainAppContainer(viewModel: PosViewModel) {
     }
 
     // Receipt Dialog Overlay
-    if (showReceiptDialog && receiptTransaction != null) {
+    val activeReceipt = receiptTransaction
+    if (showReceiptDialog && activeReceipt != null) {
         ReceiptDialog(
             viewModel = viewModel,
-            transaction = receiptTransaction!!,
+            transaction = activeReceipt,
             items = receiptItems,
             onDismiss = { viewModel.dismissReceiptDialog() }
         )
