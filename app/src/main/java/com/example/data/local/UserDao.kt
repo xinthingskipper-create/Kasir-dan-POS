@@ -20,6 +20,9 @@ interface UserDao {
     @Query("SELECT * FROM users WHERE id = :userId LIMIT 1")
     suspend fun getUserById(userId: Long): User?
 
+    @Query("SELECT * FROM users WHERE LOWER(TRIM(username)) = LOWER(TRIM(:username)) ORDER BY id ASC LIMIT 1")
+    suspend fun getUserByUsername(username: String): User?
+
     @Query("SELECT * FROM users WHERE LOWER(username) = LOWER(:username) AND pin = :pin AND isActive = 1 LIMIT 1")
     suspend fun authenticate(username: String, pin: String): User?
 
@@ -37,4 +40,16 @@ interface UserDao {
 
     @Query("SELECT COUNT(*) FROM users")
     suspend fun getUserCount(): Int
+
+    @Query(
+        """
+        DELETE FROM users
+        WHERE id NOT IN (
+            SELECT MIN(id)
+            FROM users
+            GROUP BY LOWER(TRIM(username))
+        )
+        """
+    )
+    suspend fun deduplicateUsersByUsername()
 }

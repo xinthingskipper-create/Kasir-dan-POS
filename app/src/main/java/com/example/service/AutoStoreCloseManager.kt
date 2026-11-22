@@ -6,11 +6,18 @@ import android.content.Context
 import android.content.Intent
 import android.os.Build
 import android.util.Log
+import androidx.core.os.UserManagerCompat
+import androidx.work.CoroutineWorker
+import androidx.work.ExistingWorkPolicy
+import androidx.work.OneTimeWorkRequestBuilder
+import androidx.work.WorkManager
+import androidx.work.WorkerParameters
 import com.example.data.local.PosDatabase
 import com.example.data.model.PaymentMethod
 import com.example.data.model.ShiftClosing
 import com.example.data.repository.FirebaseSyncRepository
 import com.example.data.repository.PosRepository
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -56,6 +63,7 @@ object AutoStoreCloseManager {
     const val DEFAULT_HOUR = 22
     const val DEFAULT_MINUTE = 0
     private const val ALARM_REQUEST_CODE = 4401
+    private const val AUTO_CLOSE_WORK_NAME = "kasir_pos_auto_store_close"
 
     private val executeMutex = Mutex()
 
@@ -195,6 +203,22 @@ object AutoStoreCloseManager {
         }
     }
 
+    fun enqueueImmediateWorker(context: Context): Boolean {
+        return try {
+            if (!UserManagerCompat.isUserUnlocked(context)) return false
+            val request = OneTimeWorkRequestBuilder<AutoStoreCloseWorker>().build()
+            WorkManager.getInstance(context.applicationContext).enqueueUniqueWork(
+                AUTO_CLOSE_WORK_NAME,
+                ExistingWorkPolicy.KEEP,
+                request
+            )
+            true
+        } catch (t: Throwable) {
+            Log.w(TAG, "Unable to enqueue AutoStoreCloseWorker: ${t.message}")
+            false
+        }
+    }
+
     /**
      * Menjalankan Tutup Toko Otomatis jika waktunya sudah terpenuhi (atau dipicu langsung oleh alarm/manual).
      */
@@ -202,12 +226,16 @@ object AutoStoreCloseManager {
         context: Context,
         triggeredByAlarm: Boolean = false
     ): AutoCloseResult = withContext(Dispatchers.IO) {
-        executeMutex.withLock {
-            val prefs = context.getSharedPreferences(PosBackgroundService.PREFS_NAME, Context.MODE_PRIVATE)
-            val enabled = prefs.getBoolean(KEY_AUTO_CLOSE_ENABLED, false)
-            if (!enabled) {
-                return@withLock AutoCloseResult(executed = false, message = "Tutup toko otomatis nonaktif")
-            }
+        if (!UserManagerCompat.isUserUnlocked(context)) {
+            return@withContext AutoCloseResult(executed = false, message = "Perangkat masih terkunci")
+        }
+        try {
+            executeMutex.withLock {
+                val prefs = context.getSharedPreferences(PosBackgroundService.PREFS_NAME, Context.MODE_PRIVATE)
+                val enabled = prefs.getBoolean(KEY_AUTO_CLOSE_ENABLED, false)
+                if (!enabled) {
+                    return@withLock AutoCloseResult(executed = false, message = "Tutup toko otomatis nonaktif")
+                }
 
             val hour = prefs.getInt(KEY_AUTO_CLOSE_HOUR, DEFAULT_HOUR).coerceIn(0, 23)
             val minute = prefs.getInt(KEY_AUTO_CLOSE_MINUTE, DEFAULT_MINUTE).coerceIn(0, 59)
@@ -306,10 +334,15 @@ object AutoStoreCloseManager {
             val projId = prefs.getString("KEY_FIREBASE_PROJECT_ID", "foodrock-report")
                 ?.ifBlank { "foodrock-report" }
                 ?: "foodrock-report"
-            LocalWebReportServer.start(context, database)
+            if (PosBackgroundService.isAppInForeground(context)) {
+                try {
+                    LocalWebReportServer.start(context, database)
+                } catch (_: Throwable) {
+                }
+            }
             val rawHostUrl = prefs.getString("KEY_WEB_HOSTING_URL", "")
             val hostUrl = if (rawHostUrl.isNullOrBlank() || FirebaseSyncRepository.isAiStudioProxyUrl(rawHostUrl)) {
-                LocalWebReportServer.getLocalBaseUrl()
+                if (LocalWebReportServer.isRunning()) LocalWebReportServer.getLocalBaseUrl() else ""
             } else {
                 rawHostUrl.trim()
             }
@@ -457,5 +490,36 @@ object AutoStoreCloseManager {
                 message = statusMessage
             )
         }
+        } catch (ce: CancellationException) {
+            throw ce
+        } catch (t: Throwable) {
+            Log.e(TAG, "Auto close failed safely: ${t.message}", t)
+            AutoCloseResult(executed = false, message = "Gagal tutup toko otomatis: ${t.message}")
+        }
     }
 }
+
+class AutoStoreCloseWorker(
+    appContext: Context,
+    params: WorkerParameters
+) : CoroutineWorker(appContext, params) {
+
+    override suspend fun doWork(): Result {
+        return try {
+            if (!UserManagerCompat.isUserUnlocked(applicationContext)) {
+                return Result.retry()
+            }
+            AutoStoreCloseManager.executeScheduledStoreClosing(
+                context = applicationContext,
+                triggeredByAlarm = true
+            )
+            Result.success()
+        } catch (ce: CancellationException) {
+            throw ce
+        } catch (t: Throwable) {
+            Log.e("AutoStoreCloseWorker", "Auto close worker error handled: ${t.message}", t)
+            Result.success()
+        }
+    }
+}
+

@@ -84,7 +84,11 @@ abstract class PosDatabase : RoomDatabase() {
             super.onCreate(db)
             INSTANCE?.let { database ->
                 CoroutineScope(Dispatchers.IO).launch {
-                    populateInitialData(database)
+                    try {
+                        populateInitialData(database)
+                    } catch (t: Throwable) {
+                        android.util.Log.e("PosDatabase", "Initial data setup warning: ${t.message}", t)
+                    }
                 }
             }
         }
@@ -96,6 +100,15 @@ abstract class PosDatabase : RoomDatabase() {
                 db.execSQL("""
                     INSERT OR IGNORE INTO store_profile (id, storeName, address, phone, ownerPhone, receiptHeader, receiptFooter)
                     VALUES (1, 'KASIR POS NUSANTARA', 'Jl. Merdeka No. 45, Jakarta Pusat', '0812-9876-5432', '081298765432', 'STRUK PEMBELIAN RESMI', 'Terima kasih atas kunjungan Anda!\nBarang yang sudah dibeli tidak dapat ditukar/dikembalikan.')
+                """.trimIndent())
+                // Deduplicate staff accounts if any duplicate usernames exist from previous versions
+                db.execSQL("""
+                    DELETE FROM users
+                    WHERE id NOT IN (
+                        SELECT MIN(id)
+                        FROM users
+                        GROUP BY LOWER(TRIM(username))
+                    )
                 """.trimIndent())
                 // Ensure sembako products are removed if any remained from previous version
                 db.execSQL("DELETE FROM products WHERE LOWER(category) = 'sembako'")
@@ -129,29 +142,36 @@ abstract class PosDatabase : RoomDatabase() {
                 )
             )
 
-            // 2. Default Users
-            val admin = User(
-                username = "admin",
-                pin = "1234",
-                fullName = "Budi Santoso (Admin)",
-                role = UserRole.ADMIN,
-                phone = "081211112222"
+            // 2. Default Users (synchronized to avoid race condition with seedDefaultUsersIfEmpty)
+            val defaultUsers = listOf(
+                User(
+                    username = "admin",
+                    pin = "1234",
+                    fullName = "Budi Santoso (Admin)",
+                    role = UserRole.ADMIN,
+                    phone = "081211112222"
+                ),
+                User(
+                    username = "kasir1",
+                    pin = "1111",
+                    fullName = "Siti Aminah (Kasir 1)",
+                    role = UserRole.KASIR,
+                    phone = "081233334444"
+                ),
+                User(
+                    username = "kasir2",
+                    pin = "2222",
+                    fullName = "Rian Pratama (Kasir 2)",
+                    role = UserRole.KASIR,
+                    phone = "081255556666"
+                )
             )
-            val kasir1 = User(
-                username = "kasir1",
-                pin = "1111",
-                fullName = "Siti Aminah (Kasir 1)",
-                role = UserRole.KASIR,
-                phone = "081233334444"
-            )
-            val kasir2 = User(
-                username = "kasir2",
-                pin = "2222",
-                fullName = "Rian Pratama (Kasir 2)",
-                role = UserRole.KASIR,
-                phone = "081255556666"
-            )
-            db.userDao().insertUsers(listOf(admin, kasir1, kasir2))
+            defaultUsers.forEach { user ->
+                if (db.userDao().getUserByUsername(user.username) == null) {
+                    db.userDao().insertUser(user)
+                }
+            }
+            db.userDao().deduplicateUsersByUsername()
 
             // 3. Initial Products (Makanan, Minuman, Snack - Sembako removed)
             val products = listOf(

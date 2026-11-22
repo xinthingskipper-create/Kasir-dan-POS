@@ -171,9 +171,11 @@ fun UsersManagementScreen(viewModel: PosViewModel) {
 
     // Add User Dialog
     if (showAddDialog) {
+        val existingUsernames = allUsers.map { it.username.trim().lowercase() }.toSet()
         UserFormDialog(
             title = "Tambah Karyawan Baru",
             initialUser = null,
+            existingUsernames = existingUsernames,
             onDismiss = { showAddDialog = false },
             onSave = { username, pin, fullName, role, phone ->
                 viewModel.addUser(username, pin, fullName, role, phone)
@@ -185,14 +187,19 @@ fun UsersManagementScreen(viewModel: PosViewModel) {
 
     // Edit User Dialog
     editingUser?.let { user ->
+        val existingUsernames = allUsers
+            .filter { it.id != user.id }
+            .map { it.username.trim().lowercase() }
+            .toSet()
         UserFormDialog(
             title = "Edit Akun Karyawan",
             initialUser = user,
+            existingUsernames = existingUsernames,
             onDismiss = { editingUser = null },
             onSave = { username, pin, fullName, role, phone ->
                 viewModel.updateUser(
                     user.copy(
-                        username = username,
+                        username = username.trim().lowercase(),
                         pin = pin,
                         fullName = fullName,
                         role = role,
@@ -344,6 +351,7 @@ private fun UserRowCard(
 fun UserFormDialog(
     title: String,
     initialUser: User?,
+    existingUsernames: Set<String> = emptySet(),
     onDismiss: () -> Unit,
     onSave: (String, String, String, UserRole, String) -> Unit
 ) {
@@ -353,6 +361,8 @@ fun UserFormDialog(
     var role by remember { mutableStateOf(initialUser?.role ?: UserRole.KASIR) }
     var phone by remember { mutableStateOf(initialUser?.phone ?: "") }
     var isPinVisible by remember { mutableStateOf(false) }
+    val normalizedUsername = username.trim().lowercase()
+    val isDuplicateUsername = normalizedUsername.isNotBlank() && normalizedUsername in existingUsernames
 
     Dialog(onDismissRequest = onDismiss) {
         Surface(
@@ -386,6 +396,10 @@ fun UserFormDialog(
                     value = username,
                     onValueChange = { username = it },
                     label = { Text("Username Login") },
+                    isError = isDuplicateUsername,
+                    supportingText = if (isDuplicateUsername) {
+                        { Text("Username '@$normalizedUsername' sudah dipakai akun staff lain") }
+                    } else null,
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth().testTag("user_username_input"),
                     shape = RoundedCornerShape(10.dp)
@@ -462,10 +476,11 @@ fun UserFormDialog(
                     Spacer(modifier = Modifier.width(8.dp))
                     Button(
                         onClick = {
-                            if (username.isNotBlank() && pin.isNotBlank() && fullName.isNotBlank()) {
-                                onSave(username, pin, fullName, role, phone)
+                            if (!isDuplicateUsername && username.isNotBlank() && pin.isNotBlank() && fullName.isNotBlank()) {
+                                onSave(normalizedUsername, pin, fullName, role, phone)
                             }
                         },
+                        enabled = !isDuplicateUsername && username.isNotBlank() && pin.isNotBlank() && fullName.isNotBlank(),
                         modifier = Modifier.testTag("save_user_button")
                     ) {
                         Text("Simpan Akun")

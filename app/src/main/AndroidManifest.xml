@@ -57,6 +57,16 @@
             android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+            </intent-filter>
+        </receiver>
+
+        <receiver
+            android:name=".service.PosNotificationActionReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="com.example.action.STOP_POS_BACKGROUND" />
+                <action android:name="com.example.action.CHECK_STOCK_NOW" />
             </intent-filter>
         </receiver>
 

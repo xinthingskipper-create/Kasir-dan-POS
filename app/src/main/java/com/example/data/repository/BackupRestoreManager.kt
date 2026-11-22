@@ -867,9 +867,9 @@ class BackupRestoreManager(
                         isActive = obj.optBoolean("isActive", true),
                         createdAt = obj.optLong("createdAt", System.currentTimeMillis())
                     )
+                    val normUsername = user.username.trim().lowercase(Locale.ROOT)
+                    val existingMatch = existingByUsername[normUsername]
                     if (preserveEditedAndDeleted) {
-                        val normUsername = user.username.trim().lowercase(Locale.ROOT)
-                        val existingMatch = existingByUsername[normUsername]
                         val isDeletedOrEdited = (user.id > 0L && user.id in deletedUserIds) ||
                             (normUsername.isNotBlank() && normUsername in deletedUsernames) ||
                             (user.id > 0L && user.id in editedUserIds) ||
@@ -880,10 +880,16 @@ class BackupRestoreManager(
                             continue
                         }
                     }
-                    restoredUsers.add(user)
+                    val targetUser = if (existingMatch != null && existingMatch.id > 0L) {
+                        user.copy(id = existingMatch.id, username = normUsername.ifBlank { user.username })
+                    } else {
+                        user.copy(username = normUsername.ifBlank { user.username })
+                    }
+                    restoredUsers.add(targetUser)
                 }
                 if (restoredUsers.isNotEmpty()) {
-                    database.userDao().insertUsers(restoredUsers)
+                    database.userDao().insertUsers(restoredUsers.distinctBy { it.username.trim().lowercase(Locale.ROOT) })
+                    database.userDao().deduplicateUsersByUsername()
                 }
             }
 

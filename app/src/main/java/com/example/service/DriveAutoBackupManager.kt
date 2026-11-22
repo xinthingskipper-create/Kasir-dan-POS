@@ -3,6 +3,7 @@ package com.example.service
 import android.content.Context
 import android.content.SharedPreferences
 import android.util.Log
+import androidx.core.os.UserManagerCompat
 import androidx.work.BackoffPolicy
 import androidx.work.Constraints
 import androidx.work.CoroutineWorker
@@ -19,6 +20,7 @@ import com.example.data.repository.BackupRestoreManager
 import com.example.data.repository.BackupStats
 import com.example.data.repository.DriveBackupFile
 import com.example.data.repository.GoogleDriveBackupManager
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -392,19 +394,29 @@ class DriveAutoBackupWorker(
 ) : CoroutineWorker(appContext, params) {
 
     override suspend fun doWork(): Result {
-        val reason = inputData.getString(KEY_REASON) ?: "Auto Backup Terjadwal"
-        val res = DriveAutoBackupManager.performBackupToDrive(
-            context = applicationContext,
-            reason = reason,
-            isManual = false
-        )
-        return if (res.success) {
-            Result.success()
-        } else {
-            val prefs = DriveAutoBackupManager.getPrefs(applicationContext)
-            val enabled = prefs.getBoolean(DriveAutoBackupManager.KEY_DRIVE_AUTO_BACKUP_ENABLED, false)
-            val connected = prefs.getBoolean(DriveAutoBackupManager.KEY_DRIVE_CONNECTED, false)
-            if (enabled && connected) Result.retry() else Result.failure()
+        return try {
+            if (!UserManagerCompat.isUserUnlocked(applicationContext)) {
+                return Result.retry()
+            }
+            val reason = inputData.getString(KEY_REASON) ?: "Auto Backup Terjadwal"
+            val res = DriveAutoBackupManager.performBackupToDrive(
+                context = applicationContext,
+                reason = reason,
+                isManual = false
+            )
+            if (res.success) {
+                Result.success()
+            } else {
+                val prefs = DriveAutoBackupManager.getPrefs(applicationContext)
+                val enabled = prefs.getBoolean(DriveAutoBackupManager.KEY_DRIVE_AUTO_BACKUP_ENABLED, false)
+                val connected = prefs.getBoolean(DriveAutoBackupManager.KEY_DRIVE_CONNECTED, false)
+                if (enabled && connected) Result.retry() else Result.failure()
+            }
+        } catch (ce: CancellationException) {
+            throw ce
+        } catch (t: Throwable) {
+            Log.e("DriveAutoBackupWorker", "Handled Drive backup worker error: ${t.message}", t)
+            Result.retry()
         }
     }
 

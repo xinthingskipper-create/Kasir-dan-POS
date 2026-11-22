@@ -9,8 +9,10 @@ import com.example.data.model.StoreProfile
 import com.example.data.model.Transaction
 import com.example.data.model.TransactionItem
 import com.example.data.model.User
+import com.example.data.model.UserRole
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -57,11 +59,20 @@ class PosRepository(private val database: PosDatabase) {
     }
 
     suspend fun insertUser(user: User): Long = withContext(Dispatchers.IO) {
-        userDao.insertUser(user)
+        val normalized = user.username.trim().lowercase()
+        val cleanUser = user.copy(username = normalized)
+        val existing = userDao.getUserByUsername(normalized)
+        if (cleanUser.id == 0L && existing != null) {
+            val updated = cleanUser.copy(id = existing.id)
+            userDao.updateUser(updated)
+            existing.id
+        } else {
+            userDao.insertUser(cleanUser)
+        }
     }
 
     suspend fun updateUser(user: User) = withContext(Dispatchers.IO) {
-        userDao.updateUser(user)
+        userDao.updateUser(user.copy(username = user.username.trim().lowercase()))
     }
 
     suspend fun deleteUser(user: User) = withContext(Dispatchers.IO) {
@@ -72,57 +83,63 @@ class PosRepository(private val database: PosDatabase) {
         userDao.getUserCount()
     }
 
+    suspend fun deduplicateUsersIfNeeded() = withContext(Dispatchers.IO) {
+        userSeedMutex.withLock {
+            userDao.deduplicateUsersByUsername()
+        }
+    }
+
     suspend fun seedDefaultUsersIfEmpty() = withContext(Dispatchers.IO) {
-        if (userDao.getUserCount() == 0) {
-            val admin = com.example.data.model.User(
-                username = "admin",
-                pin = "1234",
-                fullName = "Budi Santoso (Admin)",
-                role = com.example.data.model.UserRole.ADMIN,
-                phone = "081211112222"
-            )
-            val kasir1 = com.example.data.model.User(
-                username = "kasir1",
-                pin = "1111",
-                fullName = "Siti Aminah (Kasir 1)",
-                role = com.example.data.model.UserRole.KASIR,
-                phone = "081233334444"
-            )
-            val kasir2 = com.example.data.model.User(
-                username = "kasir2",
-                pin = "2222",
-                fullName = "Rian Pratama (Kasir 2)",
-                role = com.example.data.model.UserRole.KASIR,
-                phone = "081255556666"
-            )
-            userDao.insertUsers(listOf(admin, kasir1, kasir2))
+        userSeedMutex.withLock {
+            userDao.deduplicateUsersByUsername()
+            if (userDao.getUserCount() == 0) {
+                defaultUsersList().forEach { defaultUser ->
+                    if (userDao.getUserByUsername(defaultUser.username) == null) {
+                        userDao.insertUser(defaultUser)
+                    }
+                }
+                userDao.deduplicateUsersByUsername()
+            }
         }
     }
 
     suspend fun resetDefaultUsers() = withContext(Dispatchers.IO) {
-        val admin = com.example.data.model.User(
+        userSeedMutex.withLock {
+            defaultUsersList().forEach { defaultUser ->
+                val existing = userDao.getUserByUsername(defaultUser.username)
+                if (existing != null) {
+                    userDao.updateUser(defaultUser.copy(id = existing.id, isActive = true))
+                } else {
+                    userDao.insertUser(defaultUser)
+                }
+            }
+            userDao.deduplicateUsersByUsername()
+        }
+    }
+
+    private fun defaultUsersList(): List<User> = listOf(
+        User(
             username = "admin",
             pin = "1234",
             fullName = "Budi Santoso (Admin)",
-            role = com.example.data.model.UserRole.ADMIN,
+            role = UserRole.ADMIN,
             phone = "081211112222"
-        )
-        val kasir1 = com.example.data.model.User(
+        ),
+        User(
             username = "kasir1",
             pin = "1111",
             fullName = "Siti Aminah (Kasir 1)",
-            role = com.example.data.model.UserRole.KASIR,
+            role = UserRole.KASIR,
             phone = "081233334444"
-        )
-        val kasir2 = com.example.data.model.User(
+        ),
+        User(
             username = "kasir2",
             pin = "2222",
             fullName = "Rian Pratama (Kasir 2)",
-            role = com.example.data.model.UserRole.KASIR,
+            role = UserRole.KASIR,
             phone = "081255556666"
         )
-        userDao.insertUsers(listOf(admin, kasir1, kasir2))
-    }
+    )
 
     // --- Products & Inventory ---
     fun getAllProducts(): Flow<List<Product>> = productDao.getAllProducts()
@@ -374,6 +391,8 @@ class PosRepository(private val database: PosDatabase) {
     }
 
     companion object {
+        private val userSeedMutex = kotlinx.coroutines.sync.Mutex()
+
         fun generateInvoiceNumber(): String {
             val dateFormat = SimpleDateFormat("yyyyMMdd-HHmmss", Locale.getDefault())
             return "TRX-${dateFormat.format(Date())}"

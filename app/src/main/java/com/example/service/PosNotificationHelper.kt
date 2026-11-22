@@ -117,21 +117,21 @@ object PosNotificationHelper {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
-        val stopIntent = Intent(context, PosBackgroundService::class.java).apply {
+        val stopIntent = Intent(context, PosNotificationActionReceiver::class.java).apply {
             action = PosBackgroundService.ACTION_STOP
             putExtra(PosBackgroundService.EXTRA_FROM_NOTIFICATION, true)
         }
-        val stopPendingIntent = PendingIntent.getService(
+        val stopPendingIntent = PendingIntent.getBroadcast(
             context,
             102,
             stopIntent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
-        val checkNowIntent = Intent(context, PosBackgroundService::class.java).apply {
+        val checkNowIntent = Intent(context, PosNotificationActionReceiver::class.java).apply {
             action = PosBackgroundService.ACTION_CHECK_STOCK
         }
-        val checkNowPendingIntent = PendingIntent.getService(
+        val checkNowPendingIntent = PendingIntent.getBroadcast(
             context,
             103,
             checkNowIntent,

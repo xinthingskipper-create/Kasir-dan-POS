@@ -504,6 +504,7 @@ class PosViewModel(application: Application) : AndroidViewModel(application) {
         }
         viewModelScope.launch(coroutineExceptionHandler) {
             try {
+                repository.deduplicateUsersIfNeeded()
                 repository.seedDefaultUsersIfEmpty()
             } catch (e: Throwable) {
                 // Ignore transient seeding errors
@@ -630,6 +631,7 @@ class PosViewModel(application: Application) : AndroidViewModel(application) {
     val loginError: StateFlow<String?> = _loginError.asStateFlow()
 
     val allUsers: StateFlow<List<User>> = repository.getAllActiveUsers()
+        .map { users -> users.distinctBy { it.username.trim().lowercase() } }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     fun login(username: String, pin: String) {

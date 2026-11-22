@@ -4,32 +4,47 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.util.Log
+import androidx.core.os.UserManagerCompat
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 
 /**
- * Receiver AlarmManager untuk mengeksekusi Tutup Toko Otomatis dan pengiriman laporan
- * ke Database Laporan secara terjadwal meski aplikasi sedang ditutup/diminimalkan.
+ * Receiver AlarmManager untuk menjadwalkan eksekusi Tutup Toko Otomatis melalui WorkManager
+ * secara cepat di background thread (Dispatchers.IO) sehingga Main Thread tidak pernah
+ * terblokir atau terkena ANR ("Aplikasi tidak menanggapi").
  */
 class AutoCloseAlarmReceiver : BroadcastReceiver() {
 
     override fun onReceive(context: Context, intent: Intent?) {
         if (intent?.action != ACTION_AUTO_CLOSE_TRIGGERED) return
-        val pendingResult = goAsync()
-        val appContext = context.applicationContext
+        if (!UserManagerCompat.isUserUnlocked(context)) return
 
+        val appContext = context.applicationContext
+        val pendingResult = goAsync()
         CoroutineScope(SupervisorJob() + Dispatchers.IO).launch {
             try {
-                AutoStoreCloseManager.executeScheduledStoreClosing(
-                    context = appContext,
-                    triggeredByAlarm = true
-                )
+                val enqueued = withTimeoutOrNull(3_000L) {
+                    AutoStoreCloseManager.enqueueImmediateWorker(appContext)
+                } == true
+
+                if (!enqueued) {
+                    withTimeoutOrNull(5_000L) {
+                        AutoStoreCloseManager.executeScheduledStoreClosing(
+                            context = appContext,
+                            triggeredByAlarm = true
+                        )
+                    }
+                }
             } catch (t: Throwable) {
-                Log.e("AutoCloseAlarmReceiver", "Failed executing scheduled store close: ${t.message}", t)
+                Log.e("AutoCloseAlarmReceiver", "Failed scheduling auto store close: ${t.message}", t)
             } finally {
-                pendingResult.finish()
+                try {
+                    pendingResult.finish()
+                } catch (_: Throwable) {
+                }
             }
         }
     }
