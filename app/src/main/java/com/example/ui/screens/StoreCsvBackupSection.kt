@@ -404,9 +404,9 @@ fun StoreCsvBackupSection(viewModel: PosViewModel) {
                         fontSize = 12.sp
                     )
                     Text(
-                        text = "Data pengaturan toko, produk, transaksi, pengeluaran, tutup shift, staf, dan laporan akan diperbarui secara offline.",
+                        text = "Item dan pengaturan yang sudah Anda edit atau hapus secara lokal TIDAK akan dikembalikan maupun ditimpa. Hanya data/pengaturan yang belum diubah yang akan dipulihkan.",
                         fontSize = 11.sp,
-                        color = Color(0xFFDC2626),
+                        color = Color(0xFF15803D),
                         fontWeight = FontWeight.Medium
                     )
                 }
@@ -422,9 +422,14 @@ fun StoreCsvBackupSection(viewModel: PosViewModel) {
                             onSuccess = { stats ->
                                 isRestoring = false
                                 pendingRestoreCsv = null
+                                val protectedNote = if (stats.skippedEditedOrDeletedCount > 0 || stats.skippedSettingsCount > 0) {
+                                    " (${stats.skippedEditedOrDeletedCount} item & ${stats.skippedSettingsCount} pengaturan yang diedit/dihapus dipertahankan)"
+                                } else {
+                                    ""
+                                }
                                 Toast.makeText(
                                     context,
-                                    "Restore CSV Berhasil: ${stats.productCount} Produk, ${stats.transactionCount} Transaksi & seluruh pengaturan dipulihkan!",
+                                    "Restore CSV Berhasil: ${stats.productCount} Produk, ${stats.transactionCount} Transaksi dipulihkan$protectedNote",
                                     Toast.LENGTH_LONG
                                 ).show()
                             },

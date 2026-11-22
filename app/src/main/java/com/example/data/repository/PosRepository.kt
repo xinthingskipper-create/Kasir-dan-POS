@@ -171,6 +171,14 @@ class PosRepository(private val database: PosDatabase) {
     fun getTransactionsBetween(startTime: Long, endTime: Long): Flow<List<Transaction>> =
         transactionDao.getTransactionsBetween(startTime, endTime)
 
+    suspend fun getTransactionsBetweenList(startTime: Long, endTime: Long): List<Transaction> = withContext(Dispatchers.IO) {
+        transactionDao.getTransactionsBetweenList(startTime, endTime)
+    }
+
+    suspend fun getTransactionById(transactionId: Long): Transaction? = withContext(Dispatchers.IO) {
+        transactionDao.getTransactionById(transactionId)
+    }
+
     suspend fun deleteTransactionsBetween(startTime: Long, endTime: Long) = withContext(Dispatchers.IO) {
         transactionDao.deleteTransactionItemsBetween(startTime, endTime)
         transactionDao.deleteTransactionsBetween(startTime, endTime)

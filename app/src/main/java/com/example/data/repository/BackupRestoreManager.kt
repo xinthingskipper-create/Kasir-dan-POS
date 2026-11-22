@@ -44,7 +44,9 @@ data class BackupStats(
     val fileUri: Uri? = null,
     val jsonString: String = "",
     val csvString: String = "",
-    val format: String = "JSON"
+    val format: String = "JSON",
+    val skippedEditedOrDeletedCount: Int = 0,
+    val skippedSettingsCount: Int = 0
 )
 
 class BackupRestoreManager(
@@ -364,7 +366,10 @@ class BackupRestoreManager(
         )
     }
 
-    suspend fun restoreFromCsvString(csvString: String): Result<BackupStats> = withContext(Dispatchers.IO) {
+    suspend fun restoreFromCsvString(
+        csvString: String,
+        preserveEditedAndDeleted: Boolean = true
+    ): Result<BackupStats> = withContext(Dispatchers.IO) {
         val decoded = CsvBackupCodec.decodeCsvToJsonSnapshot(csvString)
         if (decoded.isFailure) {
             return@withContext Result.failure(
@@ -372,163 +377,310 @@ class BackupRestoreManager(
             )
         }
         val jsonObj = decoded.getOrThrow()
-        val restoreResult = restoreFromJsonString(jsonObj.toString())
+        val restoreResult = restoreFromJsonString(
+            jsonString = jsonObj.toString(),
+            preserveEditedAndDeleted = preserveEditedAndDeleted
+        )
         restoreResult.map { stats -> stats.copy(format = "CSV") }
     }
 
-    suspend fun restoreFromJsonString(jsonString: String): Result<BackupStats> = withContext(Dispatchers.IO) {
+    suspend fun restoreFromJsonString(
+        jsonString: String,
+        preserveEditedAndDeleted: Boolean = true
+    ): Result<BackupStats> = withContext(Dispatchers.IO) {
         try {
             val root = JSONObject(jsonString)
             var settingsRestored = false
+            var skippedItemsCount = 0
+            var skippedSettingsCount = 0
 
-            // 1. Restore Store Profile
+            // 1. Restore Store Profile (skip if locally edited)
             if (root.has("storeProfile")) {
-                val spObj = root.getJSONObject("storeProfile")
-                val storeProfile = StoreProfile(
-                    id = 1,
-                    storeName = spObj.optString("storeName", "KASIR POS"),
-                    address = spObj.optString("address", ""),
-                    phone = spObj.optString("phone", ""),
-                    ownerPhone = spObj.optString("ownerPhone", ""),
-                    receiptHeader = spObj.optString("receiptHeader", "STRUK PEMBELIAN"),
-                    receiptFooter = spObj.optString("receiptFooter", "Terima kasih!")
-                )
-                database.storeProfileDao().insertStoreProfile(storeProfile)
-                settingsRestored = true
+                val skipStoreProfile = preserveEditedAndDeleted &&
+                    RestoreGuardTracker.isSettingEdited(context, RestoreGuardTracker.SETTING_STORE_PROFILE)
+                if (skipStoreProfile) {
+                    skippedSettingsCount++
+                } else {
+                    val spObj = root.getJSONObject("storeProfile")
+                    val storeProfile = StoreProfile(
+                        id = 1,
+                        storeName = spObj.optString("storeName", "KASIR POS"),
+                        address = spObj.optString("address", ""),
+                        phone = spObj.optString("phone", ""),
+                        ownerPhone = spObj.optString("ownerPhone", ""),
+                        receiptHeader = spObj.optString("receiptHeader", "STRUK PEMBELIAN"),
+                        receiptFooter = spObj.optString("receiptFooter", "Terima kasih!")
+                    )
+                    database.storeProfileDao().insertStoreProfile(storeProfile)
+                    settingsRestored = true
+                }
             }
 
-            // 2. Restore Cloud Hosting Config
+            // 2. Restore Cloud Hosting Config (skip if locally edited)
             if (root.has("cloudHostingConfig")) {
-                val cc = root.getJSONObject("cloudHostingConfig")
-                val current = database.cloudHostingConfigDao().getConfigSync() ?: CloudHostingConfig()
-                val restoredConfig = CloudHostingConfig(
-                    id = 1,
-                    useSeparateOwnerProject = cc.optBoolean("useSeparateOwnerProject", current.useSeparateOwnerProject),
-                    ownerProjectId = cc.optString("ownerProjectId", current.ownerProjectId),
-                    ownerDatabaseId = cc.optString("ownerDatabaseId", current.ownerDatabaseId),
-                    ownerHostingUrl = cc.optString("ownerHostingUrl", current.ownerHostingUrl),
-                    enableConsumerWeb = cc.optBoolean("enableConsumerWeb", current.enableConsumerWeb),
-                    consumerProjectId = cc.optString("consumerProjectId", current.consumerProjectId),
-                    consumerDatabaseId = cc.optString("consumerDatabaseId", current.consumerDatabaseId),
-                    consumerWebUrl = cc.optString("consumerWebUrl", current.consumerWebUrl),
-                    enableEmailBackup = cc.optBoolean("enableEmailBackup", current.enableEmailBackup),
-                    backupEmail = cc.optString("backupEmail", current.backupEmail),
-                    autoBackupOnShiftClose = cc.optBoolean("autoBackupOnShiftClose", current.autoBackupOnShiftClose),
-                    lastBackupTimestamp = cc.optLong("lastBackupTimestamp", current.lastBackupTimestamp),
-                    enableLanServer = cc.optBoolean("enableLanServer", current.enableLanServer),
-                    lanPort = cc.optInt("lanPort", current.lanPort),
-                    lanIpAddress = cc.optString("lanIpAddress", current.lanIpAddress),
-                    updatedAt = cc.optLong("updatedAt", System.currentTimeMillis())
-                )
-                database.cloudHostingConfigDao().insertOrUpdateConfig(restoredConfig)
-                settingsRestored = true
+                val skipCloudHosting = preserveEditedAndDeleted &&
+                    RestoreGuardTracker.isSettingEdited(context, RestoreGuardTracker.SETTING_CLOUD_HOSTING)
+                if (skipCloudHosting) {
+                    skippedSettingsCount++
+                } else {
+                    val cc = root.getJSONObject("cloudHostingConfig")
+                    val current = database.cloudHostingConfigDao().getConfigSync() ?: CloudHostingConfig()
+                    val restoredConfig = CloudHostingConfig(
+                        id = 1,
+                        useSeparateOwnerProject = cc.optBoolean("useSeparateOwnerProject", current.useSeparateOwnerProject),
+                        ownerProjectId = cc.optString("ownerProjectId", current.ownerProjectId),
+                        ownerDatabaseId = cc.optString("ownerDatabaseId", current.ownerDatabaseId),
+                        ownerHostingUrl = cc.optString("ownerHostingUrl", current.ownerHostingUrl),
+                        enableConsumerWeb = cc.optBoolean("enableConsumerWeb", current.enableConsumerWeb),
+                        consumerProjectId = cc.optString("consumerProjectId", current.consumerProjectId),
+                        consumerDatabaseId = cc.optString("consumerDatabaseId", current.consumerDatabaseId),
+                        consumerWebUrl = cc.optString("consumerWebUrl", current.consumerWebUrl),
+                        enableEmailBackup = cc.optBoolean("enableEmailBackup", current.enableEmailBackup),
+                        backupEmail = cc.optString("backupEmail", current.backupEmail),
+                        autoBackupOnShiftClose = cc.optBoolean("autoBackupOnShiftClose", current.autoBackupOnShiftClose),
+                        lastBackupTimestamp = cc.optLong("lastBackupTimestamp", current.lastBackupTimestamp),
+                        enableLanServer = cc.optBoolean("enableLanServer", current.enableLanServer),
+                        lanPort = cc.optInt("lanPort", current.lanPort),
+                        lanIpAddress = cc.optString("lanIpAddress", current.lanIpAddress),
+                        updatedAt = cc.optLong("updatedAt", System.currentTimeMillis())
+                    )
+                    database.cloudHostingConfigDao().insertOrUpdateConfig(restoredConfig)
+                    settingsRestored = true
+                }
             }
 
-            // 3. Restore SharedPreferences App Settings
+            // 3. Restore SharedPreferences App Settings (granular per-setting guard)
             if (root.has("appSettings")) {
                 val s = root.getJSONObject("appSettings")
                 val prefs = context.getSharedPreferences(PosBackgroundService.PREFS_NAME, Context.MODE_PRIVATE)
                 val editor = prefs.edit()
+                var anyAppSettingApplied = false
+
+                fun canRestoreSetting(settingKey: String): Boolean {
+                    if (!preserveEditedAndDeleted) return true
+                    val blocked = RestoreGuardTracker.isSettingEdited(context, settingKey)
+                    if (blocked) skippedSettingsCount++
+                    return !blocked
+                }
 
                 s.optJSONArray("customCategories")?.let { arr ->
-                    editor.putString(KEY_CUSTOM_CATEGORIES, arr.toString())
+                    val backupCats = parseJsonStringList(arr)
+                    val deletedCats = if (preserveEditedAndDeleted) RestoreGuardTracker.getDeletedCategories(context) else emptySet()
+                    val renamedCats = if (preserveEditedAndDeleted) RestoreGuardTracker.getRenamedCategories(context) else emptyMap()
+                    val isCatsEdited = preserveEditedAndDeleted &&
+                        RestoreGuardTracker.isSettingEdited(context, RestoreGuardTracker.SETTING_CUSTOM_CATEGORIES)
+
+                    if (!isCatsEdited && deletedCats.isEmpty() && renamedCats.isEmpty()) {
+                        editor.putString(KEY_CUSTOM_CATEGORIES, toJsonStringArray(backupCats).toString())
+                        anyAppSettingApplied = true
+                    } else {
+                        val currentLocalRaw = prefs.getString(KEY_CUSTOM_CATEGORIES, null)
+                        val merged = parseJsonStringListFromString(currentLocalRaw).toMutableList()
+                        var blockedAnyCat = false
+                        var addedUntouchedCat = false
+                        for (cat in backupCats) {
+                            val norm = cat.trim().lowercase(Locale.ROOT)
+                            if (norm in deletedCats || norm in renamedCats.keys) {
+                                blockedAnyCat = true
+                                continue
+                            }
+                            if (merged.none { it.equals(cat, ignoreCase = true) }) {
+                                merged.add(cat)
+                                addedUntouchedCat = true
+                            }
+                        }
+                        if (blockedAnyCat || isCatsEdited) {
+                            skippedSettingsCount++
+                        }
+                        if (addedUntouchedCat) {
+                            editor.putString(KEY_CUSTOM_CATEGORIES, toJsonStringArray(merged).toString())
+                            anyAppSettingApplied = true
+                        }
+                    }
                 }
+
                 s.optJSONArray("customUnits")?.let { arr ->
-                    editor.putString(KEY_CUSTOM_UNITS, arr.toString())
+                    val backupUnits = parseJsonStringList(arr)
+                    val deletedUnits = if (preserveEditedAndDeleted) RestoreGuardTracker.getDeletedUnits(context) else emptySet()
+                    val isUnitsEdited = preserveEditedAndDeleted &&
+                        RestoreGuardTracker.isSettingEdited(context, RestoreGuardTracker.SETTING_CUSTOM_UNITS)
+
+                    if (!isUnitsEdited && deletedUnits.isEmpty()) {
+                        editor.putString(KEY_CUSTOM_UNITS, toJsonStringArray(backupUnits).toString())
+                        anyAppSettingApplied = true
+                    } else {
+                        val currentLocalRaw = prefs.getString(KEY_CUSTOM_UNITS, null)
+                        val merged = parseJsonStringListFromString(currentLocalRaw).toMutableList()
+                        var blockedAnyUnit = false
+                        var addedUntouchedUnit = false
+                        for (unit in backupUnits) {
+                            val norm = unit.trim().lowercase(Locale.ROOT)
+                            if (norm in deletedUnits) {
+                                blockedAnyUnit = true
+                                continue
+                            }
+                            if (merged.none { it.equals(unit, ignoreCase = true) }) {
+                                merged.add(unit)
+                                addedUntouchedUnit = true
+                            }
+                        }
+                        if (blockedAnyUnit || isUnitsEdited) {
+                            skippedSettingsCount++
+                        }
+                        if (addedUntouchedUnit) {
+                            editor.putString(KEY_CUSTOM_UNITS, toJsonStringArray(merged).toString())
+                            anyAppSettingApplied = true
+                        }
+                    }
                 }
-                if (s.has("foodDefaultUnit")) {
+
+                if (s.has("foodDefaultUnit") && canRestoreSetting(RestoreGuardTracker.SETTING_FOOD_DEFAULT_UNIT)) {
                     editor.putString(KEY_FOOD_DEFAULT_UNIT, s.optString("foodDefaultUnit", "porsi"))
+                    anyAppSettingApplied = true
                 }
-                if (s.has("drinkDefaultUnit")) {
+                if (s.has("drinkDefaultUnit") && canRestoreSetting(RestoreGuardTracker.SETTING_DRINK_DEFAULT_UNIT)) {
                     editor.putString(KEY_DRINK_DEFAULT_UNIT, s.optString("drinkDefaultUnit", "pcs"))
+                    anyAppSettingApplied = true
                 }
-                if (s.has("tableCount")) {
+                if (s.has("tableCount") && canRestoreSetting(RestoreGuardTracker.SETTING_TABLE_COUNT)) {
                     editor.putInt(KEY_TABLE_COUNT, s.optInt("tableCount", 5).coerceIn(0, 100))
+                    anyAppSettingApplied = true
                 }
-                if (s.has("firebaseProjectId")) {
+                if (s.has("firebaseProjectId") && canRestoreSetting(RestoreGuardTracker.SETTING_FIREBASE_PROJECT_ID)) {
                     editor.putString("KEY_FIREBASE_PROJECT_ID", s.optString("firebaseProjectId", "foodrock-report"))
+                    anyAppSettingApplied = true
                 }
-                if (s.has("firebaseDatabaseId")) {
+                if (s.has("firebaseDatabaseId") && canRestoreSetting(RestoreGuardTracker.SETTING_FIREBASE_DATABASE_ID)) {
                     editor.putString("KEY_FIREBASE_DATABASE_ID", s.optString("firebaseDatabaseId", "foodrock-report-default-rtdb"))
+                    anyAppSettingApplied = true
                 }
-                if (s.has("webHostingUrl")) {
+                if (s.has("webHostingUrl") && canRestoreSetting(RestoreGuardTracker.SETTING_WEB_HOSTING_URL)) {
                     editor.putString("KEY_WEB_HOSTING_URL", s.optString("webHostingUrl", "http://127.0.0.1:8080/owner.html"))
+                    anyAppSettingApplied = true
                 }
-                if (s.has("bgServiceEnabled")) {
+                if (s.has("bgServiceEnabled") && canRestoreSetting(RestoreGuardTracker.SETTING_BG_SERVICE_ENABLED)) {
                     editor.putBoolean(PosBackgroundService.KEY_BG_SERVICE_ENABLED, s.optBoolean("bgServiceEnabled", true))
+                    anyAppSettingApplied = true
                 }
-                if (s.has("lowStockNotifEnabled")) {
+                if (s.has("lowStockNotifEnabled") && canRestoreSetting(RestoreGuardTracker.SETTING_LOW_STOCK_NOTIF_ENABLED)) {
                     editor.putBoolean(PosBackgroundService.KEY_LOW_STOCK_NOTIF_ENABLED, s.optBoolean("lowStockNotifEnabled", true))
+                    anyAppSettingApplied = true
                 }
-                if (s.has("autoCloseEnabled")) {
-                    editor.putBoolean(AutoStoreCloseManager.KEY_AUTO_CLOSE_ENABLED, s.optBoolean("autoCloseEnabled", false))
+                if ((s.has("autoCloseEnabled") || s.has("autoCloseHour") || s.has("autoCloseMinute")) &&
+                    canRestoreSetting(RestoreGuardTracker.SETTING_AUTO_CLOSE)
+                ) {
+                    if (s.has("autoCloseEnabled")) {
+                        editor.putBoolean(AutoStoreCloseManager.KEY_AUTO_CLOSE_ENABLED, s.optBoolean("autoCloseEnabled", false))
+                    }
+                    if (s.has("autoCloseHour")) {
+                        editor.putInt(AutoStoreCloseManager.KEY_AUTO_CLOSE_HOUR, s.optInt("autoCloseHour", AutoStoreCloseManager.DEFAULT_HOUR).coerceIn(0, 23))
+                    }
+                    if (s.has("autoCloseMinute")) {
+                        editor.putInt(AutoStoreCloseManager.KEY_AUTO_CLOSE_MINUTE, s.optInt("autoCloseMinute", AutoStoreCloseManager.DEFAULT_MINUTE).coerceIn(0, 59))
+                    }
+                    anyAppSettingApplied = true
                 }
-                if (s.has("autoCloseHour")) {
-                    editor.putInt(AutoStoreCloseManager.KEY_AUTO_CLOSE_HOUR, s.optInt("autoCloseHour", AutoStoreCloseManager.DEFAULT_HOUR).coerceIn(0, 23))
-                }
-                if (s.has("autoCloseMinute")) {
-                    editor.putInt(AutoStoreCloseManager.KEY_AUTO_CLOSE_MINUTE, s.optInt("autoCloseMinute", AutoStoreCloseManager.DEFAULT_MINUTE).coerceIn(0, 59))
-                }
-                if (s.has("driveAutoBackupEnabled")) {
+                if (s.has("driveAutoBackupEnabled") && canRestoreSetting(RestoreGuardTracker.SETTING_DRIVE_AUTO_BACKUP_ENABLED)) {
                     editor.putBoolean(DriveAutoBackupManager.KEY_DRIVE_AUTO_BACKUP_ENABLED, s.optBoolean("driveAutoBackupEnabled", false))
+                    anyAppSettingApplied = true
                 }
-                if (s.has("driveAutoBackupFrequency")) {
+                if (s.has("driveAutoBackupFrequency") && canRestoreSetting(RestoreGuardTracker.SETTING_DRIVE_AUTO_BACKUP_FREQUENCY)) {
                     editor.putString(
                         DriveAutoBackupManager.KEY_DRIVE_AUTO_BACKUP_FREQUENCY,
                         DriveBackupFrequency.fromId(s.optString("driveAutoBackupFrequency")).id
                     )
+                    anyAppSettingApplied = true
                 }
-                if (s.has("driveAutoBackupHour")) {
-                    editor.putInt(DriveAutoBackupManager.KEY_DRIVE_AUTO_BACKUP_HOUR, s.optInt("driveAutoBackupHour", DriveAutoBackupManager.DEFAULT_HOUR).coerceIn(0, 23))
+                if ((s.has("driveAutoBackupHour") || s.has("driveAutoBackupMinute")) &&
+                    canRestoreSetting(RestoreGuardTracker.SETTING_DRIVE_AUTO_BACKUP_TIME)
+                ) {
+                    if (s.has("driveAutoBackupHour")) {
+                        editor.putInt(DriveAutoBackupManager.KEY_DRIVE_AUTO_BACKUP_HOUR, s.optInt("driveAutoBackupHour", DriveAutoBackupManager.DEFAULT_HOUR).coerceIn(0, 23))
+                    }
+                    if (s.has("driveAutoBackupMinute")) {
+                        editor.putInt(DriveAutoBackupManager.KEY_DRIVE_AUTO_BACKUP_MINUTE, s.optInt("driveAutoBackupMinute", DriveAutoBackupManager.DEFAULT_MINUTE).coerceIn(0, 59))
+                    }
+                    anyAppSettingApplied = true
                 }
-                if (s.has("driveAutoBackupMinute")) {
-                    editor.putInt(DriveAutoBackupManager.KEY_DRIVE_AUTO_BACKUP_MINUTE, s.optInt("driveAutoBackupMinute", DriveAutoBackupManager.DEFAULT_MINUTE).coerceIn(0, 59))
-                }
-                if (s.has("driveAutoBackupWifiOnly")) {
+                if (s.has("driveAutoBackupWifiOnly") && canRestoreSetting(RestoreGuardTracker.SETTING_DRIVE_AUTO_BACKUP_WIFI_ONLY)) {
                     editor.putBoolean(DriveAutoBackupManager.KEY_DRIVE_AUTO_BACKUP_WIFI_ONLY, s.optBoolean("driveAutoBackupWifiOnly", false))
+                    anyAppSettingApplied = true
                 }
-                if (s.has("driveAutoBackupOnShiftClose")) {
+                if (s.has("driveAutoBackupOnShiftClose") && canRestoreSetting(RestoreGuardTracker.SETTING_DRIVE_AUTO_BACKUP_ON_SHIFT_CLOSE)) {
                     editor.putBoolean(DriveAutoBackupManager.KEY_DRIVE_AUTO_BACKUP_ON_SHIFT_CLOSE, s.optBoolean("driveAutoBackupOnShiftClose", true))
+                    anyAppSettingApplied = true
                 }
-                if (s.has("driveAutoBackupKeepCount")) {
+                if (s.has("driveAutoBackupKeepCount") && canRestoreSetting(RestoreGuardTracker.SETTING_DRIVE_AUTO_BACKUP_KEEP_COUNT)) {
                     editor.putInt(DriveAutoBackupManager.KEY_DRIVE_AUTO_BACKUP_KEEP_COUNT, s.optInt("driveAutoBackupKeepCount", DriveAutoBackupManager.DEFAULT_KEEP_COUNT).coerceIn(0, 100))
+                    anyAppSettingApplied = true
                 }
-                editor.apply()
-                settingsRestored = true
+                if (anyAppSettingApplied) {
+                    editor.apply()
+                    settingsRestored = true
+                }
             }
 
-            // 4. Restore Products
+            // 4. Restore Products (skip locally deleted or edited products)
             val restoredProducts = mutableListOf<Product>()
             if (root.has("products")) {
                 val array = root.getJSONArray("products")
+                val existingProducts = database.productDao().getAllProductsList()
+                val existingById = existingProducts.associateBy { it.id }
+                val existingByName = existingProducts.associateBy { it.name.trim().lowercase(Locale.ROOT) }
+                val deletedIds = if (preserveEditedAndDeleted) RestoreGuardTracker.getDeletedProductIds(context) else emptySet()
+                val deletedNames = if (preserveEditedAndDeleted) RestoreGuardTracker.getDeletedProductNames(context) else emptySet()
+                val editedIds = if (preserveEditedAndDeleted) RestoreGuardTracker.getEditedProductIds(context) else emptySet()
+
                 for (i in 0 until array.length()) {
                     val obj = array.getJSONObject(i)
-                    restoredProducts.add(
-                        Product(
-                            id = obj.optLong("id", 0),
-                            name = obj.optString("name", "Produk"),
-                            category = obj.optString("category", "Umum"),
-                            barcode = obj.optString("barcode", ""),
-                            buyPrice = obj.optDouble("buyPrice", 0.0),
-                            sellPrice = obj.optDouble("sellPrice", 0.0),
-                            stock = obj.optInt("stock", 0),
-                            minStockAlert = obj.optInt("minStockAlert", 5),
-                            unit = obj.optString("unit", "pcs"),
-                            description = obj.optString("description", ""),
-                            isAvailable = obj.optBoolean("isAvailable", true),
-                            updatedAt = obj.optLong("updatedAt", System.currentTimeMillis())
-                        )
+                    val product = Product(
+                        id = obj.optLong("id", 0),
+                        name = obj.optString("name", "Produk"),
+                        category = obj.optString("category", "Umum"),
+                        barcode = obj.optString("barcode", ""),
+                        buyPrice = obj.optDouble("buyPrice", 0.0),
+                        sellPrice = obj.optDouble("sellPrice", 0.0),
+                        stock = obj.optInt("stock", 0),
+                        minStockAlert = obj.optInt("minStockAlert", 5),
+                        unit = obj.optString("unit", "pcs"),
+                        description = obj.optString("description", ""),
+                        isAvailable = obj.optBoolean("isAvailable", true),
+                        updatedAt = obj.optLong("updatedAt", System.currentTimeMillis())
                     )
+                    if (preserveEditedAndDeleted) {
+                        val normName = product.name.trim().lowercase(Locale.ROOT)
+                        val existingByIdMatch = existingById[product.id]
+                        val existingByNameMatch = existingByName[normName]
+                        val isDeleted = (product.id > 0L && product.id in deletedIds) ||
+                            (normName.isNotBlank() && normName in deletedNames)
+                        val isEdited = (product.id > 0L && product.id in editedIds) ||
+                            (existingByNameMatch != null && existingByNameMatch.id in editedIds) ||
+                            (existingByIdMatch != null && existingByIdMatch.updatedAt > product.updatedAt) ||
+                            (existingByNameMatch != null && existingByNameMatch.id != product.id)
+                        if (isDeleted || isEdited) {
+                            skippedItemsCount++
+                            continue
+                        }
+                    }
+                    restoredProducts.add(product)
                 }
                 if (restoredProducts.isNotEmpty()) {
                     database.productDao().insertProducts(restoredProducts)
                 }
             }
 
-            // 5. Restore Transactions
+            // 5. Restore Transactions (skip locally deleted transactions)
             val restoredTrxs = mutableListOf<Transaction>()
+            val existingTransactions = database.transactionDao().getAllTransactionsList()
+            val deletedTrxIds = if (preserveEditedAndDeleted) RestoreGuardTracker.getDeletedTransactionIds(context) else emptySet()
+            val deletedTrxInvoices = if (preserveEditedAndDeleted) RestoreGuardTracker.getDeletedTransactionInvoices(context) else emptySet()
+            val restoredTrxIds = mutableSetOf<Long>()
+            val skippedTrxIds = mutableSetOf<Long>()
+
             if (root.has("transactions")) {
                 val array = root.getJSONArray("transactions")
+                val existingById = existingTransactions.associateBy { it.id }
+                val existingByInvoice = existingTransactions.associateBy { it.invoiceNumber.trim().lowercase(Locale.ROOT) }
                 for (i in 0 until array.length()) {
                     val obj = array.getJSONObject(i)
                     val pMethod = try {
@@ -544,78 +696,115 @@ class BackupRestoreManager(
                     val syncedAtVal = if (obj.has("syncedAt") && !obj.isNull("syncedAt")) {
                         obj.optLong("syncedAt")
                     } else null
-                    restoredTrxs.add(
-                        Transaction(
-                            id = obj.optLong("id", 0),
-                            invoiceNumber = obj.optString("invoiceNumber", "INV"),
-                            cashierId = obj.optLong("cashierId", 1),
-                            cashierName = obj.optString("cashierName", "Kasir"),
-                            timestamp = obj.optLong("timestamp", System.currentTimeMillis()),
-                            subtotal = obj.optDouble("subtotal", 0.0),
-                            discount = obj.optDouble("discount", 0.0),
-                            tax = obj.optDouble("tax", 0.0),
-                            grandTotal = obj.optDouble("grandTotal", 0.0),
-                            paymentMethod = pMethod,
-                            amountPaid = obj.optDouble("amountPaid", 0.0),
-                            changeAmount = obj.optDouble("changeAmount", 0.0),
-                            customerName = obj.optString("customerName", "Pelanggan"),
-                            orderType = oType,
-                            tableNumber = obj.optString("tableNumber", ""),
-                            notes = obj.optString("notes", ""),
-                            isSynced = obj.optBoolean("isSynced", false),
-                            syncedAt = syncedAtVal,
-                            profitAmount = obj.optDouble("profitAmount", 0.0),
-                            totalItemsCount = obj.optInt("totalItemsCount", 0)
-                        )
+                    val trx = Transaction(
+                        id = obj.optLong("id", 0),
+                        invoiceNumber = obj.optString("invoiceNumber", "INV"),
+                        cashierId = obj.optLong("cashierId", 1),
+                        cashierName = obj.optString("cashierName", "Kasir"),
+                        timestamp = obj.optLong("timestamp", System.currentTimeMillis()),
+                        subtotal = obj.optDouble("subtotal", 0.0),
+                        discount = obj.optDouble("discount", 0.0),
+                        tax = obj.optDouble("tax", 0.0),
+                        grandTotal = obj.optDouble("grandTotal", 0.0),
+                        paymentMethod = pMethod,
+                        amountPaid = obj.optDouble("amountPaid", 0.0),
+                        changeAmount = obj.optDouble("changeAmount", 0.0),
+                        customerName = obj.optString("customerName", "Pelanggan"),
+                        orderType = oType,
+                        tableNumber = obj.optString("tableNumber", ""),
+                        notes = obj.optString("notes", ""),
+                        isSynced = obj.optBoolean("isSynced", false),
+                        syncedAt = syncedAtVal,
+                        profitAmount = obj.optDouble("profitAmount", 0.0),
+                        totalItemsCount = obj.optInt("totalItemsCount", 0)
                     )
+                    if (preserveEditedAndDeleted) {
+                        val normInv = trx.invoiceNumber.trim().lowercase(Locale.ROOT)
+                        val existingMatch = existingById[trx.id] ?: existingByInvoice[normInv]
+                        val isDeleted = (trx.id > 0L && trx.id in deletedTrxIds) ||
+                            (normInv.isNotBlank() && normInv in deletedTrxInvoices)
+                        val keepNewerLocal = existingMatch != null && existingMatch.isSynced && !trx.isSynced
+                        if (isDeleted || keepNewerLocal) {
+                            if (trx.id > 0L) skippedTrxIds.add(trx.id)
+                            skippedItemsCount++
+                            continue
+                        }
+                    }
+                    restoredTrxs.add(trx)
+                    if (trx.id > 0L) restoredTrxIds.add(trx.id)
                 }
                 if (restoredTrxs.isNotEmpty()) {
                     database.transactionDao().insertTransactions(restoredTrxs)
                 }
             }
 
-            // 6. Restore Transaction Items
+            // 6. Restore Transaction Items (only for non-deleted/non-skipped transactions)
             if (root.has("transactionItems")) {
                 val array = root.getJSONArray("transactionItems")
                 val restoredItems = mutableListOf<TransactionItem>()
+                val hasTrxSection = root.has("transactions")
                 for (i in 0 until array.length()) {
                     val obj = array.getJSONObject(i)
-                    restoredItems.add(
-                        TransactionItem(
-                            id = obj.optLong("id", 0),
-                            transactionId = obj.optLong("transactionId", 0),
-                            productId = obj.optLong("productId", 0),
-                            productName = obj.optString("productName", ""),
-                            unitPrice = obj.optDouble("unitPrice", 0.0),
-                            costPrice = obj.optDouble("costPrice", 0.0),
-                            quantity = obj.optInt("quantity", 1),
-                            subtotal = obj.optDouble("subtotal", 0.0),
-                            itemNotes = obj.optString("itemNotes", "")
-                        )
+                    val item = TransactionItem(
+                        id = obj.optLong("id", 0),
+                        transactionId = obj.optLong("transactionId", 0),
+                        productId = obj.optLong("productId", 0),
+                        productName = obj.optString("productName", ""),
+                        unitPrice = obj.optDouble("unitPrice", 0.0),
+                        costPrice = obj.optDouble("costPrice", 0.0),
+                        quantity = obj.optInt("quantity", 1),
+                        subtotal = obj.optDouble("subtotal", 0.0),
+                        itemNotes = obj.optString("itemNotes", "")
                     )
+                    if (preserveEditedAndDeleted) {
+                        val parentDeleted = item.transactionId in deletedTrxIds || item.transactionId in skippedTrxIds
+                        val parentMissingInSection = hasTrxSection && item.transactionId !in restoredTrxIds
+                        if (parentDeleted || parentMissingInSection) {
+                            continue
+                        }
+                    }
+                    restoredItems.add(item)
                 }
                 if (restoredItems.isNotEmpty()) {
                     database.transactionDao().insertTransactionItems(restoredItems)
                 }
             }
 
-            // 7. Restore Expenses
+            // 7. Restore Expenses (skip locally deleted or edited expenses)
             val restoredExpenses = mutableListOf<Expense>()
             if (root.has("expenses")) {
                 val array = root.getJSONArray("expenses")
+                val existingExpenses = database.expenseDao().getAllExpensesList()
+                val deletedExpenseIds = if (preserveEditedAndDeleted) RestoreGuardTracker.getDeletedExpenseIds(context) else emptySet()
+                val deletedExpenseFps = if (preserveEditedAndDeleted) RestoreGuardTracker.getDeletedExpenseFingerprints(context) else emptySet()
+                val editedExpenseIds = if (preserveEditedAndDeleted) RestoreGuardTracker.getEditedExpenseIds(context) else emptySet()
+
                 for (i in 0 until array.length()) {
                     val obj = array.getJSONObject(i)
-                    restoredExpenses.add(
-                        Expense(
-                            id = obj.optLong("id", 0),
-                            title = obj.optString("title", "Pengeluaran"),
-                            amount = obj.optDouble("amount", 0.0),
-                            category = obj.optString("category", "Operasional"),
-                            timestamp = obj.optLong("timestamp", System.currentTimeMillis()),
-                            notes = obj.optString("notes", ""),
-                            createdBy = obj.optString("createdBy", "Admin")
-                        )
+                    val expense = Expense(
+                        id = obj.optLong("id", 0),
+                        title = obj.optString("title", "Pengeluaran"),
+                        amount = obj.optDouble("amount", 0.0),
+                        category = obj.optString("category", "Operasional"),
+                        timestamp = obj.optLong("timestamp", System.currentTimeMillis()),
+                        notes = obj.optString("notes", ""),
+                        createdBy = obj.optString("createdBy", "Admin")
                     )
+                    if (preserveEditedAndDeleted) {
+                        val fp = RestoreGuardTracker.expenseFingerprint(expense.title, expense.timestamp)
+                        val isDeletedOrEdited = (expense.id > 0L && expense.id in deletedExpenseIds) ||
+                            fp in deletedExpenseFps ||
+                            (expense.id > 0L && expense.id in editedExpenseIds) ||
+                            existingExpenses.any {
+                                it.id != expense.id &&
+                                    RestoreGuardTracker.expenseFingerprint(it.title, it.timestamp) == fp
+                            }
+                        if (isDeletedOrEdited) {
+                            skippedItemsCount++
+                            continue
+                        }
+                    }
+                    restoredExpenses.add(expense)
                 }
                 if (restoredExpenses.isNotEmpty()) {
                     database.expenseDao().insertExpenses(restoredExpenses)
@@ -650,10 +839,17 @@ class BackupRestoreManager(
                 }
             }
 
-            // 9. Restore Users
+            // 9. Restore Users (skip locally deleted or edited users)
             val restoredUsers = mutableListOf<User>()
             if (root.has("users")) {
                 val array = root.getJSONArray("users")
+                val existingUsers = database.userDao().getAllUsersList()
+                val existingByUsername = existingUsers.associateBy { it.username.trim().lowercase(Locale.ROOT) }
+                val deletedUserIds = if (preserveEditedAndDeleted) RestoreGuardTracker.getDeletedUserIds(context) else emptySet()
+                val deletedUsernames = if (preserveEditedAndDeleted) RestoreGuardTracker.getDeletedUsernames(context) else emptySet()
+                val editedUserIds = if (preserveEditedAndDeleted) RestoreGuardTracker.getEditedUserIds(context) else emptySet()
+                val editedUsernames = if (preserveEditedAndDeleted) RestoreGuardTracker.getEditedUsernames(context) else emptySet()
+
                 for (i in 0 until array.length()) {
                     val obj = array.getJSONObject(i)
                     val uRole = try {
@@ -661,59 +857,87 @@ class BackupRestoreManager(
                     } catch (_: Exception) {
                         UserRole.KASIR
                     }
-                    restoredUsers.add(
-                        User(
-                            id = obj.optLong("id", 0),
-                            username = obj.optString("username", "user"),
-                            pin = obj.optString("pin", "1234"),
-                            fullName = obj.optString("fullName", "User"),
-                            role = uRole,
-                            phone = obj.optString("phone", ""),
-                            isActive = obj.optBoolean("isActive", true),
-                            createdAt = obj.optLong("createdAt", System.currentTimeMillis())
-                        )
+                    val user = User(
+                        id = obj.optLong("id", 0),
+                        username = obj.optString("username", "user"),
+                        pin = obj.optString("pin", "1234"),
+                        fullName = obj.optString("fullName", "User"),
+                        role = uRole,
+                        phone = obj.optString("phone", ""),
+                        isActive = obj.optBoolean("isActive", true),
+                        createdAt = obj.optLong("createdAt", System.currentTimeMillis())
                     )
+                    if (preserveEditedAndDeleted) {
+                        val normUsername = user.username.trim().lowercase(Locale.ROOT)
+                        val existingMatch = existingByUsername[normUsername]
+                        val isDeletedOrEdited = (user.id > 0L && user.id in deletedUserIds) ||
+                            (normUsername.isNotBlank() && normUsername in deletedUsernames) ||
+                            (user.id > 0L && user.id in editedUserIds) ||
+                            (normUsername.isNotBlank() && normUsername in editedUsernames) ||
+                            (existingMatch != null && (existingMatch.id in editedUserIds || existingMatch.id != user.id))
+                        if (isDeletedOrEdited) {
+                            skippedItemsCount++
+                            continue
+                        }
+                    }
+                    restoredUsers.add(user)
                 }
                 if (restoredUsers.isNotEmpty()) {
                     database.userDao().insertUsers(restoredUsers)
                 }
             }
 
-            // 10. Restore Daily Reports
+            // 10. Restore Daily Reports (skip locally deleted reports)
             val restoredReports = mutableListOf<DailyReport>()
             if (root.has("dailyReports")) {
                 val array = root.getJSONArray("dailyReports")
+                val existingReports = database.dailyReportDao().getAllDailyReportsList()
+                val existingById = existingReports.associateBy { it.id }
+                val existingByDate = existingReports.associateBy { it.date.trim() }
+                val deletedReportIds = if (preserveEditedAndDeleted) RestoreGuardTracker.getDeletedDailyReportIds(context) else emptySet()
+                val deletedReportDates = if (preserveEditedAndDeleted) RestoreGuardTracker.getDeletedDailyReportDates(context) else emptySet()
+
                 for (i in 0 until array.length()) {
                     val obj = array.getJSONObject(i)
                     val syncedAtVal = if (obj.has("syncedAt") && !obj.isNull("syncedAt")) {
                         obj.optLong("syncedAt")
                     } else null
-                    restoredReports.add(
-                        DailyReport(
-                            id = obj.optLong("id", 0),
-                            date = obj.optString("date", ""),
-                            dateTimestamp = obj.optLong("dateTimestamp", System.currentTimeMillis()),
-                            totalRevenue = obj.optDouble("totalRevenue", 0.0),
-                            totalProfit = obj.optDouble("totalProfit", 0.0),
-                            totalTransactions = obj.optInt("totalTransactions", 0),
-                            totalItemsSold = obj.optInt("totalItemsSold", 0),
-                            totalCash = obj.optDouble("totalCash", 0.0),
-                            totalNonCash = obj.optDouble("totalNonCash", 0.0),
-                            totalQris = obj.optDouble("totalQris", 0.0),
-                            totalTransfer = obj.optDouble("totalTransfer", 0.0),
-                            totalDiscount = obj.optDouble("totalDiscount", 0.0),
-                            totalTax = obj.optDouble("totalTax", 0.0),
-                            expectedCash = obj.optDouble("expectedCash", 0.0),
-                            actualCash = obj.optDouble("actualCash", 0.0),
-                            cashDifference = obj.optDouble("cashDifference", 0.0),
-                            topProductSummary = obj.optString("topProductSummary", ""),
-                            cashierNames = obj.optString("cashierNames", ""),
-                            shiftCount = obj.optInt("shiftCount", 0),
-                            notes = obj.optString("notes", ""),
-                            isSynced = obj.optBoolean("isSynced", false),
-                            syncedAt = syncedAtVal
-                        )
+                    val report = DailyReport(
+                        id = obj.optLong("id", 0),
+                        date = obj.optString("date", ""),
+                        dateTimestamp = obj.optLong("dateTimestamp", System.currentTimeMillis()),
+                        totalRevenue = obj.optDouble("totalRevenue", 0.0),
+                        totalProfit = obj.optDouble("totalProfit", 0.0),
+                        totalTransactions = obj.optInt("totalTransactions", 0),
+                        totalItemsSold = obj.optInt("totalItemsSold", 0),
+                        totalCash = obj.optDouble("totalCash", 0.0),
+                        totalNonCash = obj.optDouble("totalNonCash", 0.0),
+                        totalQris = obj.optDouble("totalQris", 0.0),
+                        totalTransfer = obj.optDouble("totalTransfer", 0.0),
+                        totalDiscount = obj.optDouble("totalDiscount", 0.0),
+                        totalTax = obj.optDouble("totalTax", 0.0),
+                        expectedCash = obj.optDouble("expectedCash", 0.0),
+                        actualCash = obj.optDouble("actualCash", 0.0),
+                        cashDifference = obj.optDouble("cashDifference", 0.0),
+                        topProductSummary = obj.optString("topProductSummary", ""),
+                        cashierNames = obj.optString("cashierNames", ""),
+                        shiftCount = obj.optInt("shiftCount", 0),
+                        notes = obj.optString("notes", ""),
+                        isSynced = obj.optBoolean("isSynced", false),
+                        syncedAt = syncedAtVal
                     )
+                    if (preserveEditedAndDeleted) {
+                        val cleanDate = report.date.trim()
+                        val existingMatch = existingById[report.id] ?: existingByDate[cleanDate]
+                        val isDeleted = (report.id > 0L && report.id in deletedReportIds) ||
+                            (cleanDate.isNotBlank() && cleanDate in deletedReportDates)
+                        val keepNewerLocal = existingMatch != null && existingMatch.isSynced && !report.isSynced
+                        if (isDeleted || keepNewerLocal) {
+                            skippedItemsCount++
+                            continue
+                        }
+                    }
+                    restoredReports.add(report)
                 }
                 if (restoredReports.isNotEmpty()) {
                     database.dailyReportDao().insertDailyReports(restoredReports)
@@ -728,12 +952,40 @@ class BackupRestoreManager(
                     userCount = restoredUsers.size,
                     expenseCount = restoredExpenses.size,
                     dailyReportCount = restoredReports.size,
-                    settingsRestored = settingsRestored
+                    settingsRestored = settingsRestored,
+                    skippedEditedOrDeletedCount = skippedItemsCount,
+                    skippedSettingsCount = skippedSettingsCount
                 )
             )
         } catch (e: Exception) {
             Result.failure(e)
         }
+    }
+
+    private fun parseJsonStringList(arr: JSONArray): List<String> {
+        val list = mutableListOf<String>()
+        for (i in 0 until arr.length()) {
+            val v = arr.optString(i).trim()
+            if (v.isNotBlank() && list.none { it.equals(v, ignoreCase = true) }) {
+                list.add(v)
+            }
+        }
+        return list
+    }
+
+    private fun parseJsonStringListFromString(raw: String?): List<String> {
+        if (raw.isNullOrBlank()) return emptyList()
+        return try {
+            parseJsonStringList(JSONArray(raw))
+        } catch (_: Throwable) {
+            emptyList()
+        }
+    }
+
+    private fun toJsonStringArray(values: List<String>): JSONArray {
+        val arr = JSONArray()
+        values.forEach { arr.put(it) }
+        return arr
     }
 
     suspend fun readJsonFromUri(uri: Uri): String = withContext(Dispatchers.IO) {

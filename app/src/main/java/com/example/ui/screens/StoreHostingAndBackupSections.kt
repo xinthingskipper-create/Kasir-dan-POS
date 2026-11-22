@@ -657,9 +657,9 @@ fun StoreLocalBackupSection(viewModel: PosViewModel) {
                         color = Color(0xFF334155)
                     )
                     Text(
-                        text = "Data toko, menu produk, dan transaksi penjualan yang ada di aplikasi akan diperbarui dengan data dari file cadangan.",
+                        text = "Item dan pengaturan yang sudah Anda edit atau hapus secara lokal TIDAK akan dikembalikan maupun ditimpa. Hanya data yang belum diubah yang akan dipulihkan.",
                         fontSize = 11.sp,
-                        color = Color(0xFFDC2626),
+                        color = Color(0xFF15803D),
                         fontWeight = FontWeight.Medium
                     )
                 }
@@ -675,9 +675,14 @@ fun StoreLocalBackupSection(viewModel: PosViewModel) {
                             onSuccess = { stats ->
                                 isRestoring = false
                                 pendingRestoreJson = null
+                                val protectedNote = if (stats.skippedEditedOrDeletedCount > 0 || stats.skippedSettingsCount > 0) {
+                                    " (${stats.skippedEditedOrDeletedCount} item & ${stats.skippedSettingsCount} pengaturan yang diedit/dihapus dipertahankan)"
+                                } else {
+                                    ""
+                                }
                                 Toast.makeText(
                                     context,
-                                    "Restore Berhasil: ${stats.productCount} Produk, ${stats.transactionCount} Transaksi dipulihkan!",
+                                    "Restore Berhasil: ${stats.productCount} Produk, ${stats.transactionCount} Transaksi dipulihkan$protectedNote",
                                     Toast.LENGTH_LONG
                                 ).show()
                             },

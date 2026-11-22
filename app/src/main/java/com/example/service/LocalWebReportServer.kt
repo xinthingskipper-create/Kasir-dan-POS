@@ -381,6 +381,11 @@ object LocalWebReportServer {
                             val match = db.expenseDao().getExpensesBetweenList(0L, Long.MAX_VALUE)
                                 .firstOrNull { it.id == idNum }
                             if (match != null) {
+                                appContext?.let {
+                                    com.example.data.repository.RestoreGuardTracker.recordExpenseDeleted(
+                                        it, match.id, match.title, match.timestamp
+                                    )
+                                }
                                 db.expenseDao().deleteExpense(match)
                             }
                         }
@@ -404,6 +409,11 @@ object LocalWebReportServer {
                             val match = db.expenseDao().getExpensesBetweenList(0L, Long.MAX_VALUE)
                                 .firstOrNull { it.id == idNum }
                             if (match != null) {
+                                appContext?.let {
+                                    com.example.data.repository.RestoreGuardTracker.recordExpenseDeleted(
+                                        it, match.id, match.title, match.timestamp
+                                    )
+                                }
                                 db.expenseDao().deleteExpense(match)
                             }
                         }
@@ -417,6 +427,11 @@ object LocalWebReportServer {
                             val match = db.expenseDao().getExpensesBetweenList(0L, Long.MAX_VALUE)
                                 .firstOrNull { it.id == idNum }
                             if (match != null) {
+                                appContext?.let {
+                                    com.example.data.repository.RestoreGuardTracker.recordExpenseDeleted(
+                                        it, match.id, match.title, match.timestamp
+                                    )
+                                }
                                 db.expenseDao().deleteExpense(match)
                             }
                         }
@@ -430,6 +445,11 @@ object LocalWebReportServer {
                             val match = db.expenseDao().getExpensesBetweenList(0L, Long.MAX_VALUE)
                                 .firstOrNull { it.id == idNum }
                             if (match != null) {
+                                appContext?.let {
+                                    com.example.data.repository.RestoreGuardTracker.recordExpenseDeleted(
+                                        it, match.id, match.title, match.timestamp
+                                    )
+                                }
                                 db.expenseDao().deleteExpense(match)
                             }
                         }
@@ -448,6 +468,11 @@ object LocalWebReportServer {
             it.invoiceNumber.equals(invoiceOrId, ignoreCase = true) ||
                 it.id.toString() == invoiceOrId
         } ?: return
+        appContext?.let {
+            com.example.data.repository.RestoreGuardTracker.recordTransactionDeleted(
+                it, target.id, target.invoiceNumber
+            )
+        }
         db.transactionDao().deleteItemsByTransactionId(target.id)
         db.transactionDao().deleteTransactionById(target.id)
         deletedKeys.add("transactions/${target.invoiceNumber}")

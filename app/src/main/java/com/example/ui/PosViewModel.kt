@@ -229,6 +229,12 @@ class PosViewModel(application: Application) : AndroidViewModel(application) {
             .putString("KEY_FIREBASE_DATABASE_ID", cleanDbId)
             .putString("KEY_WEB_HOSTING_URL", cleanUrl)
             .apply()
+        com.example.data.repository.RestoreGuardTracker.markSettingsEdited(
+            getApplication(),
+            com.example.data.repository.RestoreGuardTracker.SETTING_FIREBASE_PROJECT_ID,
+            com.example.data.repository.RestoreGuardTracker.SETTING_FIREBASE_DATABASE_ID,
+            com.example.data.repository.RestoreGuardTracker.SETTING_WEB_HOSTING_URL
+        )
         scheduleDebouncedDriveBackupIfActive("Perubahan Pengaturan Hosting")
     }
 
@@ -319,6 +325,10 @@ class PosViewModel(application: Application) : AndroidViewModel(application) {
             .putInt(com.example.service.AutoStoreCloseManager.KEY_AUTO_CLOSE_MINUTE, cleanMinute)
             .putLong(com.example.service.AutoStoreCloseManager.KEY_AUTO_CLOSE_CONFIGURED_AT, System.currentTimeMillis())
             .apply()
+        com.example.data.repository.RestoreGuardTracker.markSettingEdited(
+            getApplication(),
+            com.example.data.repository.RestoreGuardTracker.SETTING_AUTO_CLOSE
+        )
 
         val appContext = getApplication<Application>()
         if (enabled) {
@@ -351,6 +361,10 @@ class PosViewModel(application: Application) : AndroidViewModel(application) {
     fun setBackgroundServiceEnabled(enabled: Boolean) {
         _isBackgroundServiceEnabled.value = enabled
         prefs.edit().putBoolean(com.example.service.PosBackgroundService.KEY_BG_SERVICE_ENABLED, enabled).apply()
+        com.example.data.repository.RestoreGuardTracker.markSettingEdited(
+            getApplication(),
+            com.example.data.repository.RestoreGuardTracker.SETTING_BG_SERVICE_ENABLED
+        )
         val appContext = getApplication<Application>()
         if (enabled) {
             com.example.service.PosBackgroundService.start(appContext)
@@ -363,6 +377,10 @@ class PosViewModel(application: Application) : AndroidViewModel(application) {
     fun setLowStockNotifEnabled(enabled: Boolean) {
         _isLowStockNotifEnabled.value = enabled
         prefs.edit().putBoolean(com.example.service.PosBackgroundService.KEY_LOW_STOCK_NOTIF_ENABLED, enabled).apply()
+        com.example.data.repository.RestoreGuardTracker.markSettingEdited(
+            getApplication(),
+            com.example.data.repository.RestoreGuardTracker.SETTING_LOW_STOCK_NOTIF_ENABLED
+        )
         if (enabled) {
             checkLowStockAndNotify(forceAlert = true)
         }
@@ -412,6 +430,10 @@ class PosViewModel(application: Application) : AndroidViewModel(application) {
     fun saveCloudHostingConfig(config: com.example.data.model.CloudHostingConfig) {
         viewModelScope.launch(coroutineExceptionHandler) {
             try {
+                com.example.data.repository.RestoreGuardTracker.markSettingEdited(
+                    getApplication(),
+                    com.example.data.repository.RestoreGuardTracker.SETTING_CLOUD_HOSTING
+                )
                 repository.saveCloudHostingConfig(config)
                 updateWebHostingConfig(
                     projectId = config.ownerProjectId,
@@ -652,6 +674,9 @@ class PosViewModel(application: Application) : AndroidViewModel(application) {
 
     fun resetDefaultUsers() {
         viewModelScope.launch {
+            listOf("admin", "kasir1", "kasir2").forEach {
+                com.example.data.repository.RestoreGuardTracker.clearUsernameDeleted(getApplication(), it)
+            }
             repository.resetDefaultUsers()
             _loginError.value = "Akun default berhasil dipulihkan! Silakan pilih akun pada Akses Cepat Staff."
         }
@@ -659,8 +684,10 @@ class PosViewModel(application: Application) : AndroidViewModel(application) {
 
     fun addUser(username: String, pin: String, fullName: String, role: UserRole, phone: String) {
         viewModelScope.launch {
+            val cleanUsername = username.trim().lowercase()
+            com.example.data.repository.RestoreGuardTracker.clearUsernameDeleted(getApplication(), cleanUsername)
             val user = User(
-                username = username.trim().lowercase(),
+                username = cleanUsername,
                 pin = pin.trim(),
                 fullName = fullName.trim(),
                 role = role,
@@ -672,6 +699,11 @@ class PosViewModel(application: Application) : AndroidViewModel(application) {
 
     fun updateUser(user: User) {
         viewModelScope.launch {
+            com.example.data.repository.RestoreGuardTracker.recordUserEdited(
+                getApplication(),
+                user.id,
+                user.username
+            )
             repository.updateUser(user)
             if (_currentUser.value?.id == user.id) {
                 _currentUser.value = user
@@ -681,6 +713,11 @@ class PosViewModel(application: Application) : AndroidViewModel(application) {
 
     fun deleteUser(user: User) {
         viewModelScope.launch {
+            com.example.data.repository.RestoreGuardTracker.recordUserDeleted(
+                getApplication(),
+                user.id,
+                user.username
+            )
             repository.deleteUser(user)
         }
     }
@@ -692,6 +729,10 @@ class PosViewModel(application: Application) : AndroidViewModel(application) {
 
     fun updateStoreProfile(name: String, address: String, phone: String, ownerPhone: String, footer: String) {
         viewModelScope.launch {
+            com.example.data.repository.RestoreGuardTracker.markSettingEdited(
+                getApplication(),
+                com.example.data.repository.RestoreGuardTracker.SETTING_STORE_PROFILE
+            )
             val updated = StoreProfile(
                 id = 1,
                 storeName = name.trim().ifEmpty { "KASIR POS" },
@@ -787,6 +828,7 @@ class PosViewModel(application: Application) : AndroidViewModel(application) {
         val updated = current + clean
         _configuredCategories.value = updated
         saveStringListPref(KEY_CUSTOM_CATEGORIES, updated)
+        com.example.data.repository.RestoreGuardTracker.recordCategoryAdded(getApplication(), clean)
         scheduleDebouncedDriveBackupIfActive("Perubahan Kategori Menu")
         return true
     }
@@ -804,10 +846,15 @@ class PosViewModel(application: Application) : AndroidViewModel(application) {
             .let { if (it.any { c -> c.equals(cleanNew, ignoreCase = true) }) it else it + cleanNew }
         _configuredCategories.value = updated
         saveStringListPref(KEY_CUSTOM_CATEGORIES, updated)
+        com.example.data.repository.RestoreGuardTracker.recordCategoryRenamed(getApplication(), cleanOld, cleanNew)
         if (_selectedCategory.value?.equals(cleanOld, ignoreCase = true) == true) {
             _selectedCategory.value = cleanNew
         }
         viewModelScope.launch {
+            val matchingIds = repository.getAllProductsList()
+                .filter { it.category.equals(cleanOld, ignoreCase = true) }
+                .map { it.id }
+            com.example.data.repository.RestoreGuardTracker.recordProductsEdited(getApplication(), matchingIds)
             repository.renameProductCategory(cleanOld, cleanNew)
         }
         scheduleDebouncedDriveBackupIfActive("Perubahan Nama Kategori")
@@ -822,6 +869,7 @@ class PosViewModel(application: Application) : AndroidViewModel(application) {
         if (updated.size == current.size) return false
         _configuredCategories.value = updated
         saveStringListPref(KEY_CUSTOM_CATEGORIES, updated)
+        com.example.data.repository.RestoreGuardTracker.recordCategoryDeleted(getApplication(), clean)
         if (_selectedCategory.value?.equals(clean, ignoreCase = true) == true) {
             _selectedCategory.value = null
         }
@@ -837,6 +885,7 @@ class PosViewModel(application: Application) : AndroidViewModel(application) {
         val updated = current + clean
         _configuredUnits.value = updated
         saveStringListPref(KEY_CUSTOM_UNITS, updated)
+        com.example.data.repository.RestoreGuardTracker.recordUnitAdded(getApplication(), clean)
         scheduleDebouncedDriveBackupIfActive("Tambah Satuan Produk")
         return true
     }
@@ -854,6 +903,7 @@ class PosViewModel(application: Application) : AndroidViewModel(application) {
         if (updated.size == current.size) return false
         _configuredUnits.value = updated
         saveStringListPref(KEY_CUSTOM_UNITS, updated)
+        com.example.data.repository.RestoreGuardTracker.recordUnitDeleted(getApplication(), clean)
         scheduleDebouncedDriveBackupIfActive("Hapus Satuan Produk")
         return true
     }
@@ -865,6 +915,10 @@ class PosViewModel(application: Application) : AndroidViewModel(application) {
         }
         _foodDefaultUnit.value = clean
         prefs.edit().putString(KEY_FOOD_DEFAULT_UNIT, clean).apply()
+        com.example.data.repository.RestoreGuardTracker.markSettingEdited(
+            getApplication(),
+            com.example.data.repository.RestoreGuardTracker.SETTING_FOOD_DEFAULT_UNIT
+        )
         if (applyToExistingProducts) {
             applyUnitToCategoryProducts("Makanan", clean)
         }
@@ -878,6 +932,10 @@ class PosViewModel(application: Application) : AndroidViewModel(application) {
         }
         _drinkDefaultUnit.value = clean
         prefs.edit().putString(KEY_DRINK_DEFAULT_UNIT, clean).apply()
+        com.example.data.repository.RestoreGuardTracker.markSettingEdited(
+            getApplication(),
+            com.example.data.repository.RestoreGuardTracker.SETTING_DRINK_DEFAULT_UNIT
+        )
         if (applyToExistingProducts) {
             applyUnitToCategoryProducts("Minuman", clean)
         }
@@ -889,6 +947,10 @@ class PosViewModel(application: Application) : AndroidViewModel(application) {
         val cleanUnit = unit.trim()
         if (cleanCat.isEmpty() || cleanUnit.isEmpty()) return
         viewModelScope.launch {
+            val matchingIds = repository.getAllProductsList()
+                .filter { it.category.equals(cleanCat, ignoreCase = true) }
+                .map { it.id }
+            com.example.data.repository.RestoreGuardTracker.recordProductsEdited(getApplication(), matchingIds)
             repository.updateUnitByCategory(cleanCat, cleanUnit)
         }
     }
@@ -897,10 +959,26 @@ class PosViewModel(application: Application) : AndroidViewModel(application) {
         val clamped = count.coerceIn(0, 100)
         _tableCount.value = clamped
         prefs.edit().putInt(KEY_TABLE_COUNT, clamped).apply()
+        com.example.data.repository.RestoreGuardTracker.markSettingEdited(
+            getApplication(),
+            com.example.data.repository.RestoreGuardTracker.SETTING_TABLE_COUNT
+        )
         scheduleDebouncedDriveBackupIfActive("Ubah Jumlah Meja")
     }
 
     fun resetOperationalSettingsToDefaults() {
+        val removedCategories = _configuredCategories.value.filter { oldCat ->
+            DEFAULT_CATEGORIES.none { it.equals(oldCat, ignoreCase = true) }
+        }
+        val removedUnits = _configuredUnits.value.filter { oldUnit ->
+            DEFAULT_UNITS.none { it.equals(oldUnit, ignoreCase = true) }
+        }
+        removedCategories.forEach {
+            com.example.data.repository.RestoreGuardTracker.recordCategoryDeleted(getApplication(), it)
+        }
+        removedUnits.forEach {
+            com.example.data.repository.RestoreGuardTracker.recordUnitDeleted(getApplication(), it)
+        }
         _configuredCategories.value = DEFAULT_CATEGORIES
         _configuredUnits.value = DEFAULT_UNITS
         _foodDefaultUnit.value = DEFAULT_FOOD_UNIT
@@ -913,6 +991,14 @@ class PosViewModel(application: Application) : AndroidViewModel(application) {
             .putString(KEY_DRINK_DEFAULT_UNIT, DEFAULT_DRINK_UNIT)
             .putInt(KEY_TABLE_COUNT, DEFAULT_TABLE_COUNT)
             .apply()
+        com.example.data.repository.RestoreGuardTracker.markSettingsEdited(
+            getApplication(),
+            com.example.data.repository.RestoreGuardTracker.SETTING_CUSTOM_CATEGORIES,
+            com.example.data.repository.RestoreGuardTracker.SETTING_CUSTOM_UNITS,
+            com.example.data.repository.RestoreGuardTracker.SETTING_FOOD_DEFAULT_UNIT,
+            com.example.data.repository.RestoreGuardTracker.SETTING_DRINK_DEFAULT_UNIT,
+            com.example.data.repository.RestoreGuardTracker.SETTING_TABLE_COUNT
+        )
         scheduleDebouncedDriveBackupIfActive("Reset Pengaturan Operasional")
     }
 
@@ -1241,8 +1327,10 @@ class PosViewModel(application: Application) : AndroidViewModel(application) {
         unit: String
     ) {
         viewModelScope.launch {
+            val cleanName = name.trim()
+            com.example.data.repository.RestoreGuardTracker.clearProductNameDeleted(getApplication(), cleanName)
             val product = Product(
-                name = name.trim(),
+                name = cleanName,
                 category = category.trim().ifBlank { "Umum" },
                 barcode = barcode.trim(),
                 buyPrice = buyPrice,
@@ -1258,6 +1346,7 @@ class PosViewModel(application: Application) : AndroidViewModel(application) {
 
     fun updateProduct(product: Product) {
         viewModelScope.launch {
+            com.example.data.repository.RestoreGuardTracker.recordProductEdited(getApplication(), product.id)
             repository.updateProduct(product.copy(updatedAt = System.currentTimeMillis()))
             checkLowStockAndNotify(forceAlert = false)
         }
@@ -1265,12 +1354,18 @@ class PosViewModel(application: Application) : AndroidViewModel(application) {
 
     fun deleteProduct(product: Product) {
         viewModelScope.launch {
+            com.example.data.repository.RestoreGuardTracker.recordProductDeleted(
+                getApplication(),
+                product.id,
+                product.name
+            )
             repository.deleteProduct(product)
         }
     }
 
     fun adjustStock(productId: Long, newStock: Int) {
         viewModelScope.launch {
+            com.example.data.repository.RestoreGuardTracker.recordProductEdited(getApplication(), productId)
             repository.adjustStock(productId, newStock)
             checkLowStockAndNotify(forceAlert = false)
         }
@@ -1421,6 +1516,10 @@ class PosViewModel(application: Application) : AndroidViewModel(application) {
 
         viewModelScope.launch {
             val newTrxId = repository.processCheckout(transaction, transactionItems)
+            com.example.data.repository.RestoreGuardTracker.recordProductsEdited(
+                getApplication(),
+                cartMap.keys
+            )
             val completedTrx = transaction.copy(id = newTrxId)
 
             _activeReceiptTransaction.value = completedTrx
@@ -1539,6 +1638,11 @@ class PosViewModel(application: Application) : AndroidViewModel(application) {
     ) {
         viewModelScope.launch(Dispatchers.IO + coroutineExceptionHandler) {
             try {
+                val targets = repository.getTransactionsBetweenList(startTime, endTime)
+                com.example.data.repository.RestoreGuardTracker.recordTransactionsDeleted(
+                    getApplication(),
+                    targets.map { it.id to it.invoiceNumber }
+                )
                 repository.deleteTransactionsBetween(startTime, endTime)
                 withContext(Dispatchers.Main) { onResult?.invoke(true) }
             } catch (t: Throwable) {
@@ -1554,6 +1658,12 @@ class PosViewModel(application: Application) : AndroidViewModel(application) {
     ) {
         viewModelScope.launch(Dispatchers.IO + coroutineExceptionHandler) {
             try {
+                val target = repository.getTransactionById(transactionId)
+                com.example.data.repository.RestoreGuardTracker.recordTransactionDeleted(
+                    getApplication(),
+                    transactionId,
+                    target?.invoiceNumber ?: ""
+                )
                 repository.deleteTransactionById(transactionId)
                 withContext(Dispatchers.Main) { onResult?.invoke(true) }
             } catch (t: Throwable) {
@@ -1980,6 +2090,12 @@ class PosViewModel(application: Application) : AndroidViewModel(application) {
     ) {
         viewModelScope.launch(Dispatchers.IO + coroutineExceptionHandler) {
             com.example.service.LocalWebReportServer.start(getApplication(), database)
+            com.example.data.repository.RestoreGuardTracker.recordExpenseDeleted(
+                getApplication(),
+                expense.id,
+                expense.title,
+                expense.timestamp
+            )
             repository.deleteExpense(expense)
             clearExpensePending(expense.id)
             unmarkExpenseSynced(expense.id)
@@ -2292,6 +2408,11 @@ class PosViewModel(application: Application) : AndroidViewModel(application) {
     fun deleteDailyReport(report: DailyReport, onResult: ((Boolean) -> Unit)? = null) {
         viewModelScope.launch(Dispatchers.IO + coroutineExceptionHandler) {
             try {
+                com.example.data.repository.RestoreGuardTracker.recordDailyReportDeleted(
+                    getApplication(),
+                    report.id,
+                    report.date
+                )
                 repository.deleteDailyReportById(report.id)
                 withContext(Dispatchers.Main) { onResult?.invoke(true) }
             } catch (t: Throwable) {
@@ -2861,6 +2982,10 @@ class PosViewModel(application: Application) : AndroidViewModel(application) {
         prefs.edit()
             .putBoolean(DriveAutoBackupManager.KEY_DRIVE_AUTO_BACKUP_ENABLED, enabled)
             .apply()
+        com.example.data.repository.RestoreGuardTracker.markSettingEdited(
+            getApplication(),
+            com.example.data.repository.RestoreGuardTracker.SETTING_DRIVE_AUTO_BACKUP_ENABLED
+        )
         DriveAutoBackupManager.schedulePeriodicBackup(getApplication())
     }
 
@@ -2869,6 +2994,10 @@ class PosViewModel(application: Application) : AndroidViewModel(application) {
         prefs.edit()
             .putString(DriveAutoBackupManager.KEY_DRIVE_AUTO_BACKUP_FREQUENCY, frequency.id)
             .apply()
+        com.example.data.repository.RestoreGuardTracker.markSettingEdited(
+            getApplication(),
+            com.example.data.repository.RestoreGuardTracker.SETTING_DRIVE_AUTO_BACKUP_FREQUENCY
+        )
         DriveAutoBackupManager.schedulePeriodicBackup(getApplication())
     }
 
@@ -2881,6 +3010,10 @@ class PosViewModel(application: Application) : AndroidViewModel(application) {
             .putInt(DriveAutoBackupManager.KEY_DRIVE_AUTO_BACKUP_HOUR, cleanH)
             .putInt(DriveAutoBackupManager.KEY_DRIVE_AUTO_BACKUP_MINUTE, cleanM)
             .apply()
+        com.example.data.repository.RestoreGuardTracker.markSettingEdited(
+            getApplication(),
+            com.example.data.repository.RestoreGuardTracker.SETTING_DRIVE_AUTO_BACKUP_TIME
+        )
         DriveAutoBackupManager.schedulePeriodicBackup(getApplication())
     }
 
@@ -2889,6 +3022,10 @@ class PosViewModel(application: Application) : AndroidViewModel(application) {
         prefs.edit()
             .putBoolean(DriveAutoBackupManager.KEY_DRIVE_AUTO_BACKUP_WIFI_ONLY, wifiOnly)
             .apply()
+        com.example.data.repository.RestoreGuardTracker.markSettingEdited(
+            getApplication(),
+            com.example.data.repository.RestoreGuardTracker.SETTING_DRIVE_AUTO_BACKUP_WIFI_ONLY
+        )
         DriveAutoBackupManager.schedulePeriodicBackup(getApplication())
     }
 
@@ -2897,6 +3034,10 @@ class PosViewModel(application: Application) : AndroidViewModel(application) {
         prefs.edit()
             .putBoolean(DriveAutoBackupManager.KEY_DRIVE_AUTO_BACKUP_ON_SHIFT_CLOSE, enabled)
             .apply()
+        com.example.data.repository.RestoreGuardTracker.markSettingEdited(
+            getApplication(),
+            com.example.data.repository.RestoreGuardTracker.SETTING_DRIVE_AUTO_BACKUP_ON_SHIFT_CLOSE
+        )
     }
 
     fun setDriveBackupKeepCount(count: Int) {
@@ -2905,6 +3046,10 @@ class PosViewModel(application: Application) : AndroidViewModel(application) {
         prefs.edit()
             .putInt(DriveAutoBackupManager.KEY_DRIVE_AUTO_BACKUP_KEEP_COUNT, clamped)
             .apply()
+        com.example.data.repository.RestoreGuardTracker.markSettingEdited(
+            getApplication(),
+            com.example.data.repository.RestoreGuardTracker.SETTING_DRIVE_AUTO_BACKUP_KEEP_COUNT
+        )
     }
 
     fun backupToGoogleDriveNow(
