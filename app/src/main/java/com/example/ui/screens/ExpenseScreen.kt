@@ -221,12 +221,7 @@ fun ExpenseScreen(viewModel: PosViewModel) {
         onOpenWebChrome = {
             viewModel.syncExpensesForTransactionReportAuto(forceAll = true)
             val freshUrl = viewModel.buildChromeWebReportUrl(view = "expenses")
-            try {
-                context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(freshUrl)))
-            } catch (_: Exception) {
-                clipboardManager.setText(AnnotatedString(freshUrl))
-                Toast.makeText(context, "URL Web Chrome disalin: $freshUrl", Toast.LENGTH_LONG).show()
-            }
+            com.example.util.BrowserLauncher.openInChrome(context, freshUrl)
         }
     )
 }

@@ -474,15 +474,10 @@ fun CloudHostingScreen(
 
                             Spacer(modifier = Modifier.height(8.dp))
 
-                            val fullWebUrl = viewModel.buildChromeWebReportUrl()
                             Button(
                                 onClick = {
-                                    try {
-                                        context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(fullWebUrl)))
-                                    } catch (e: Exception) {
-                                        clipboardManager.setText(AnnotatedString(fullWebUrl))
-                                        Toast.makeText(context, "URL disalin: $fullWebUrl", Toast.LENGTH_LONG).show()
-                                    }
+                                    val freshWebUrl = viewModel.buildChromeWebReportUrl()
+                                    com.example.util.BrowserLauncher.openInChrome(context, freshWebUrl)
                                 },
                                 modifier = Modifier.fillMaxWidth().height(42.dp),
                                 shape = RoundedCornerShape(8.dp),
@@ -926,11 +921,7 @@ fun CloudHostingScreen(
                                             projectId = ownerProjectId,
                                             databaseId = ownerDatabaseId
                                         )
-                                        try {
-                                            context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(fullUrl)))
-                                        } catch (e: Exception) {
-                                            Toast.makeText(context, "Tidak dapat membuka browser", Toast.LENGTH_SHORT).show()
-                                        }
+                                        com.example.util.BrowserLauncher.openInChrome(context, fullUrl)
                                     },
                                     modifier = Modifier
                                         .weight(1f)

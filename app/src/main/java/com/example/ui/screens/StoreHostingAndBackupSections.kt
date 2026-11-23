@@ -346,23 +346,13 @@ fun StoreWebHostingSettingsSection(viewModel: PosViewModel) {
                 OutlinedButton(
                     onClick = {
                         try {
-                            val trimmedInput = inputWebUrl.trim()
-                            val normalizedInput = if (
-                                trimmedInput.isNotEmpty() &&
-                                !trimmedInput.startsWith("http://", ignoreCase = true) &&
-                                !trimmedInput.startsWith("https://", ignoreCase = true)
-                            ) {
-                                "https://$trimmedInput"
-                            } else {
-                                trimmedInput
-                            }
+                            val normalizedInput = com.example.util.BrowserLauncher.normalizeHttpUrl(inputWebUrl)
                             val targetUrl = viewModel.buildReportUrl(
                                 rawBaseUrl = normalizedInput,
                                 projectId = inputProjectId,
                                 databaseId = inputDatabaseId
                             )
-                            val browserIntent = Intent(Intent.ACTION_VIEW, Uri.parse(targetUrl))
-                            context.startActivity(browserIntent)
+                            com.example.util.BrowserLauncher.openInChrome(context, targetUrl)
                         } catch (e: Exception) {
                             Toast.makeText(context, "URL tidak valid: ${e.message}", Toast.LENGTH_SHORT).show()
                         }

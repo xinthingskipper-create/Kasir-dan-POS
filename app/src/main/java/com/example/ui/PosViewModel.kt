@@ -125,7 +125,7 @@ class PosViewModel(application: Application) : AndroidViewModel(application) {
     fun getLanWebUrl(): String? = com.example.service.LocalWebReportServer.getLanBaseUrl()?.let { "$it/owner.html" }
 
     fun resolveEffectiveHostingUrl(rawUrl: String? = null): String {
-        val candidate = (rawUrl ?: _webDashboardUrl.value).trim()
+        val candidate = com.example.util.BrowserLauncher.normalizeHttpUrl(rawUrl ?: _webDashboardUrl.value)
         if (candidate.isEmpty() ||
             FirebaseSyncRepository.isAiStudioProxyUrl(candidate) ||
             candidate.contains("localhost:3000", ignoreCase = true) ||
@@ -157,7 +157,7 @@ class PosViewModel(application: Application) : AndroidViewModel(application) {
         if (initialRawHostUrl.isNullOrBlank() || FirebaseSyncRepository.isAiStudioProxyUrl(initialRawHostUrl)) {
             "http://127.0.0.1:8080/owner.html"
         } else {
-            initialRawHostUrl.trim()
+            com.example.util.BrowserLauncher.normalizeHttpUrl(initialRawHostUrl)
         }
     )
 
@@ -179,9 +179,30 @@ class PosViewModel(application: Application) : AndroidViewModel(application) {
         view: String? = null,
         dateMillis: Long? = null
     ): String {
-        com.example.service.LocalWebReportServer.start(getApplication(), database)
         val rawResolved = resolveEffectiveHostingUrl(rawBaseUrl ?: webDashboardUrl.value).trimEnd('/')
-        val baseUrl = if (!rawResolved.endsWith(".html", ignoreCase = true) && !rawResolved.contains("?")) {
+        if (FirebaseSyncRepository.isLoopbackUrl(rawResolved) && !com.example.service.LocalWebReportServer.isRunning()) {
+            viewModelScope.launch(Dispatchers.IO + coroutineExceptionHandler) {
+                try {
+                    com.example.service.LocalWebReportServer.start(getApplication(), database)
+                } catch (_: Throwable) {
+                }
+            }
+        }
+        val parsedUri = try {
+            Uri.parse(rawResolved)
+        } catch (_: Throwable) {
+            null
+        }
+        val hostLower = parsedUri?.host?.lowercase().orEmpty()
+        val path = parsedUri?.path.orEmpty()
+        val isRootPath = path.isEmpty() || path == "/"
+        val shouldAppendOwnerHtml = !rawResolved.endsWith(".html", ignoreCase = true) &&
+            !rawResolved.contains("?") &&
+            isRootPath &&
+            (FirebaseSyncRepository.isLoopbackUrl(rawResolved) ||
+                hostLower.endsWith(".web.app") ||
+                hostLower.endsWith(".firebaseapp.com"))
+        val baseUrl = if (shouldAppendOwnerHtml) {
             "$rawResolved/owner.html"
         } else {
             rawResolved
@@ -211,7 +232,12 @@ class PosViewModel(application: Application) : AndroidViewModel(application) {
             dateMillis = dateMillis
         )
 
-    fun updateWebHostingConfig(projectId: String, databaseId: String, hostingUrl: String) {
+    fun updateWebHostingConfig(
+        projectId: String,
+        databaseId: String,
+        hostingUrl: String,
+        syncToRoom: Boolean = true
+    ) {
         val cleanPid = projectId.trim().let {
             if (FirebaseSyncRepository.isPlaceholderCloudId(it)) defaultFirebaseProjectId else it
         }
@@ -233,8 +259,31 @@ class PosViewModel(application: Application) : AndroidViewModel(application) {
             getApplication(),
             com.example.data.repository.RestoreGuardTracker.SETTING_FIREBASE_PROJECT_ID,
             com.example.data.repository.RestoreGuardTracker.SETTING_FIREBASE_DATABASE_ID,
-            com.example.data.repository.RestoreGuardTracker.SETTING_WEB_HOSTING_URL
+            com.example.data.repository.RestoreGuardTracker.SETTING_WEB_HOSTING_URL,
+            com.example.data.repository.RestoreGuardTracker.SETTING_CLOUD_HOSTING
         )
+        if (syncToRoom) {
+            viewModelScope.launch(Dispatchers.IO + coroutineExceptionHandler) {
+                try {
+                    val currentRoom = repository.getCloudHostingConfig().first()
+                        ?: com.example.data.model.CloudHostingConfig()
+                    if (currentRoom.ownerProjectId != cleanPid ||
+                        currentRoom.ownerDatabaseId != cleanDbId ||
+                        currentRoom.ownerHostingUrl != cleanUrl
+                    ) {
+                        repository.saveCloudHostingConfig(
+                            currentRoom.copy(
+                                ownerProjectId = cleanPid,
+                                ownerDatabaseId = cleanDbId,
+                                ownerHostingUrl = cleanUrl
+                            )
+                        )
+                    }
+                } catch (t: Throwable) {
+                    Log.w("PosViewModel", "Sync web hosting config to Room note: ${t.message}")
+                }
+            }
+        }
         scheduleDebouncedDriveBackupIfActive("Perubahan Pengaturan Hosting")
     }
 
@@ -434,11 +483,15 @@ class PosViewModel(application: Application) : AndroidViewModel(application) {
                     getApplication(),
                     com.example.data.repository.RestoreGuardTracker.SETTING_CLOUD_HOSTING
                 )
-                repository.saveCloudHostingConfig(config)
+                val normalizedConfig = config.copy(
+                    ownerHostingUrl = resolveEffectiveHostingUrl(config.ownerHostingUrl)
+                )
+                repository.saveCloudHostingConfig(normalizedConfig)
                 updateWebHostingConfig(
-                    projectId = config.ownerProjectId,
-                    databaseId = config.ownerDatabaseId,
-                    hostingUrl = config.ownerHostingUrl
+                    projectId = normalizedConfig.ownerProjectId,
+                    databaseId = normalizedConfig.ownerDatabaseId,
+                    hostingUrl = normalizedConfig.ownerHostingUrl,
+                    syncToRoom = false
                 )
             } catch (t: Throwable) {
                 Log.w("PosViewModel", "Failed to save cloud config to Room", t)
@@ -521,13 +574,32 @@ class PosViewModel(application: Application) : AndroidViewModel(application) {
             try {
                 repository.getCloudHostingConfig().collect { config ->
                     if (config != null) {
-                        if (!FirebaseSyncRepository.isPlaceholderCloudId(config.ownerProjectId)) {
-                            _firebaseProjectId.value = config.ownerProjectId.trim()
+                        val prefsUrl = prefs.getString("KEY_WEB_HOSTING_URL", null)
+                        val prefsHasCustomHosting = !prefsUrl.isNullOrBlank() &&
+                            !FirebaseSyncRepository.isLoopbackUrl(prefsUrl) &&
+                            !FirebaseSyncRepository.isAiStudioProxyUrl(prefsUrl)
+                        val roomHasDefaultLoopback = FirebaseSyncRepository.isLoopbackUrl(config.ownerHostingUrl)
+
+                        if (prefsHasCustomHosting && roomHasDefaultLoopback) {
+                            // Jangan timpa URL hosting kustom di SharedPreferences dengan URL localhost default Room
+                            val resolvedCustom = resolveEffectiveHostingUrl(prefsUrl)
+                            _webDashboardUrl.value = resolvedCustom
+                            repository.saveCloudHostingConfig(
+                                config.copy(
+                                    ownerProjectId = _firebaseProjectId.value,
+                                    ownerDatabaseId = _firebaseDatabaseId.value,
+                                    ownerHostingUrl = resolvedCustom
+                                )
+                            )
+                        } else {
+                            if (!FirebaseSyncRepository.isPlaceholderCloudId(config.ownerProjectId)) {
+                                _firebaseProjectId.value = config.ownerProjectId.trim()
+                            }
+                            if (!FirebaseSyncRepository.isPlaceholderCloudId(config.ownerDatabaseId)) {
+                                _firebaseDatabaseId.value = config.ownerDatabaseId.trim()
+                            }
+                            _webDashboardUrl.value = resolveEffectiveHostingUrl(config.ownerHostingUrl)
                         }
-                        if (!FirebaseSyncRepository.isPlaceholderCloudId(config.ownerDatabaseId)) {
-                            _firebaseDatabaseId.value = config.ownerDatabaseId.trim()
-                        }
-                        _webDashboardUrl.value = resolveEffectiveHostingUrl(config.ownerHostingUrl)
                     }
                 }
             } catch (e: Throwable) {

@@ -168,12 +168,7 @@ fun DailyReportScreen(viewModel: PosViewModel) {
             view = "trx-expenses",
             dateMillis = selectedKpDateMillis
         )
-        try {
-            context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
-        } catch (_: Exception) {
-            clipboardManager.setText(AnnotatedString(url))
-            Toast.makeText(context, "URL Web Chrome disalin: $url", Toast.LENGTH_LONG).show()
-        }
+        com.example.util.BrowserLauncher.openInChrome(context, url)
     }
 
     if (isAdmin && (selectedMenuOption != null || showExpenseReportPanel)) {
@@ -388,7 +383,9 @@ fun DailyReportScreen(viewModel: PosViewModel) {
 
             // Callout Banner: Penyimpanan Database Arsip Laporan Dipindahkan ke Hosting
             item {
-                val reportWebUrl = viewModel.buildChromeWebReportUrl()
+                val activeHostingDisplay = remember(webDashboardUrl) {
+                    viewModel.resolveEffectiveHostingUrl(webDashboardUrl)
+                }
 
                 Card(
                     modifier = Modifier.fillMaxWidth(),
@@ -425,6 +422,14 @@ fun DailyReportScreen(viewModel: PosViewModel) {
                                     fontSize = 11.sp,
                                     color = Color(0xFF64748B)
                                 )
+                                if (activeHostingDisplay.isNotBlank()) {
+                                    Text(
+                                        text = "Host aktif: $activeHostingDisplay",
+                                        fontSize = 10.sp,
+                                        color = Color(0xFF2563EB),
+                                        maxLines = 1
+                                    )
+                                }
                             }
                         }
 
@@ -450,12 +455,8 @@ fun DailyReportScreen(viewModel: PosViewModel) {
 
                             Button(
                                 onClick = {
-                                    try {
-                                        context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(reportWebUrl)))
-                                    } catch (e: Exception) {
-                                        clipboardManager.setText(AnnotatedString(reportWebUrl))
-                                        Toast.makeText(context, "URL disalin: $reportWebUrl", Toast.LENGTH_LONG).show()
-                                    }
+                                    val freshReportWebUrl = viewModel.buildChromeWebReportUrl()
+                                    com.example.util.BrowserLauncher.openInChrome(context, freshReportWebUrl)
                                 },
                                 modifier = Modifier
                                     .weight(1.2f)
